@@ -8,6 +8,7 @@ One-time setup for a fresh GCP project. Run in this order.
 - `gcloud auth login`
 - Pick a globally-unique project ID and find your billing account ID: `gcloud billing accounts list`
 - Open `setup_gcp.sh` and fill in `PROJECT_ID`, `BILLING_ACCOUNT_ID`, and `REGION` at the top.
+- `export FIREBASE_API_KEY=...` - Identity Platform's browser API key (Console: Identity Platform > Application setup details). The login screen needs it; the API hands it out from `GET /config`.
 
 ## 2. Run the script
 
@@ -25,6 +26,7 @@ It creates the project, enables the required APIs, creates Firestore (native mod
 ## 3. Manual steps (console only - no gcloud command covers these)
 
 - **Identity Platform**: Console > Identity Platform > Get Started. Enable the Email/Password provider. Enable TOTP MFA (Settings > Multi-factor authentication). The teacher's account needs a verified email before they can enroll in MFA (see docs/REQUIREMENTS.md FR-2).
+- **Teacher role**: the API refuses tokens without a role claim. After creating the teacher account and enrolling TOTP, run `GOOGLE_CLOUD_PROJECT=<project id> python infra/set_teacher_role.py <teacher email>` (prints the account's current state; only writes if the role is missing).
 - **Billing alerts**: Console > Billing > Budgets & alerts. Set alerts at $10 and $15 (see docs/REQUIREMENTS.md section 5 - these are a backstop behind the app's own spend cap, not the primary control).
 
 ## Notes
@@ -43,4 +45,4 @@ Ran against project `esl-grammar-tool`, region `us-east4`, billing account `<bil
 - Real Claude wiring (harness real mode) deployed and code-path verified end to end (prompt construction, Vertex auth, structured-output parsing, error handling) - **but the actual live call 429'd on Vertex quota**, not a code issue. See "Still outstanding" below.
 
 Still outstanding:
-- **Vertex AI serving quota for `anthropic-claude-sonnet` is 0** - confirmed via `gcloud alpha services quota list`, confirmed no self-service bump is possible. A real quota-increase request is submitted via Console (see above) and awaiting review as of 2026-10-08. The harness is deployed with `HARNESS_MOCK_MODE=false` already, ready to work the moment the quota clears - no redeploy needed, just retry.
+- **Vertex AI serving quota for `anthropic-claude-sonnet` is 0** - confirmed via `gcloud alpha services quota list`, confirmed no self-service bump is possible. A real quota-increase request is submitted via Console (see above) and awaiting review as of 2026-10-08. **As of 2026-10-08 the harness runs with `HARNESS_MOCK_MODE=true`** so Phase 4 can be tested while the quota is pending. Once the quota clears, switch it back (no rebuild needed): `gcloud run services update esl-harness --region us-east4 --update-env-vars HARNESS_MOCK_MODE=false`.

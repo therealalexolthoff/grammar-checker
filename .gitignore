@@ -5,3 +5,4 @@ venv/
 .pytest_cache/
 node_modules/
 .env
+web/dist/

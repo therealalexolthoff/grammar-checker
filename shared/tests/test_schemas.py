@@ -59,3 +59,25 @@ def test_grammar_draft_rejects_duplicate_item_ids():
 def test_grammar_draft_requires_at_least_one_item():
     with pytest.raises(ValidationError):
         GrammarExerciseDraft(title="Test", items=[])
+
+
+def test_fill_blank_marker_count_must_match_blanks():
+    with pytest.raises(ValidationError):
+        FillBlankItem(
+            id="i1",
+            text="She ___ to school and ___ home.",  # two markers
+            blanks=[Blank(id="b1", accepted=["went"])],  # one blank
+            concept="VT",
+            explanation="x",
+        )
+
+
+def test_fill_blank_accepts_longer_markers():
+    item = FillBlankItem(
+        id="i1",
+        text="She ______ to school.",
+        blanks=[Blank(id="b1", accepted=["went"])],
+        concept="VT",
+        explanation="x",
+    )
+    assert item.type == "fill_blank"

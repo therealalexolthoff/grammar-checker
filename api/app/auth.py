@@ -32,6 +32,13 @@ def get_current_user(authorization: str | None = Header(default=None)) -> Curren
     if role not in ("teacher", "student"):
         raise HTTPException(status_code=401, detail="token missing a role claim")
 
+    # Teacher MFA is enforced here, not just in the login screen
+    # (docs/REQUIREMENTS.md FR-2). Identity Platform records the second
+    # factor used for this sign-in in the token's "firebase" claim; a
+    # password-only teacher token is refused.
+    if role == "teacher" and claims.get("firebase", {}).get("sign_in_second_factor") != "totp":
+        raise HTTPException(status_code=401, detail="teacher sign-in requires the authenticator code")
+
     return CurrentUser(uid=claims["uid"], role=role, student_id=claims.get("student_id"))
 
 

@@ -8,11 +8,22 @@ validators; the one check that needs text living outside the annotation
 itself (span resolution) is in shared/validation.py instead.
 """
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .taxonomy import ErrorCode
+
+# The prompt template version, recorded on every job (docs/HARNESS_SPEC.md
+# section 8). Lives here, not in the harness, because the API sends it on
+# every request - one definition means the two services can't disagree.
+# Bump it whenever any prompt in harness/app/prompts.py changes.
+PROMPT_VERSION = "v2"
+
+# How a fill_blank item's text marks each blank: three or more underscores.
+# The student screen puts one input box at each marker, in order.
+BLANK_MARKER = re.compile(r"_{3,}")
 
 
 class StrictModel(BaseModel):
@@ -53,6 +64,15 @@ class FillBlankItem(StrictModel):
     blanks: list[Blank] = Field(min_length=1)
     concept: ErrorCode
     explanation: str
+
+    @model_validator(mode="after")
+    def check_blank_markers(self) -> "FillBlankItem":
+        markers = len(BLANK_MARKER.findall(self.text))
+        if markers != len(self.blanks):
+            raise ValueError(
+                f"text has {markers} blank marker(s) (___) but {len(self.blanks)} blank(s) are defined"
+            )
+        return self
 
 
 class ReorderItem(StrictModel):

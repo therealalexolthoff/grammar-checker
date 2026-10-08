@@ -20,6 +20,10 @@ set -euo pipefail
 PROJECT_ID="esl-grammar-tool"
 BILLING_ACCOUNT_ID="<billing account id>"
 REGION="us-east4"                 # Cloud Run / Firestore / Storage region (US East, per docs/ARCHITECTURE.md)
+# Identity Platform's browser API key (Console: Identity Platform > Application
+# setup details > apiKey). Public by design - every browser that loads the
+# app receives it - but not committed here.
+FIREBASE_API_KEY="${FIREBASE_API_KEY:?set FIREBASE_API_KEY in the environment before running}"
 # ---------------------------------------
 
 BUCKET_NAME="${PROJECT_ID}-photos"
@@ -102,7 +106,7 @@ gcloud run deploy esl-api \
   --region="${REGION}" \
   --service-account="${API_SA}" \
   --allow-unauthenticated \
-  --set-env-vars="HARNESS_URL=${HARNESS_URL},ENVIRONMENT=prod"
+  --set-env-vars="HARNESS_URL=${HARNESS_URL},ENVIRONMENT=prod,FIREBASE_API_KEY=${FIREBASE_API_KEY},FIREBASE_AUTH_DOMAIN=${PROJECT_ID}.firebaseapp.com"
 
 echo "== Let the API invoke the harness privately =="
 gcloud run services add-iam-policy-binding esl-harness \
@@ -120,3 +124,4 @@ echo "Done with what gcloud can do. Still manual - see infra/README.md:"
 echo "  1. Request Vertex AI Model Garden access for the Claude model."
 echo "  2. Enable Identity Platform + Email/Password provider + TOTP MFA (console only)."
 echo "  3. Set billing alerts at \$10 and \$15 (console only)."
+echo "  4. Give the teacher account its role: python infra/set_teacher_role.py <teacher email>"

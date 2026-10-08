@@ -3,6 +3,9 @@ section 8). Each *_SYSTEM constant is the static instruction prefix, kept
 separate from per-request dynamic content so it can be marked for prompt
 caching. The taxonomy table is generated from shared.taxonomy so the
 prompt can never drift from the single source of truth.
+
+The version number for these templates is shared.schemas.PROMPT_VERSION -
+bump it whenever anything in this file changes.
 """
 
 from shared.schemas import (
@@ -13,8 +16,6 @@ from shared.schemas import (
     TranscribeRequest,
 )
 from shared.taxonomy import CODE_DESCRIPTIONS
-
-PROMPT_VERSION = "v1"
 
 
 def _taxonomy_block() -> str:
@@ -55,11 +56,12 @@ teacher's adult, advanced-level student.
 {DATA_BLOCK_NOTE}
 
 For grammar exercises: generate items of exactly the types and count requested. For fill_blank
-items, the blank's accepted answers must be the correct answer(s) only. For reorder items, the
-chunks are the individual words/phrases to reorder, and every accepted_orders entry must use
-exactly those chunks (a permutation - nothing added or removed). Each fill_blank/reorder item
-needs a concept code from the taxonomy below and a one-line explanation. short_answer items are
-just an open-ended prompt with no answer key.
+items, mark each blank in the text with "___" (three underscores), exactly one marker per entry in
+blanks, in the same order; the blank's accepted answers must be the correct answer(s) only. For
+reorder items, the chunks are the individual words/phrases to reorder, and every accepted_orders
+entry must use exactly those chunks (a permutation - nothing added or removed). Each
+fill_blank/reorder item needs a concept code from the taxonomy below and a one-line explanation.
+short_answer items are just an open-ended prompt with no answer key.
 
 For writing exercises: one prompt, and optional min/max word counts if the teacher asked for them.
 

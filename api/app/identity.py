@@ -69,6 +69,11 @@ def delete_user(uid: str) -> None:
 
 def verify_id_token(token: str) -> dict:
     """Returns the decoded token claims, including role/student_id custom
-    claims. Raises firebase_admin.auth errors on an invalid/expired token."""
+    claims. Raises firebase_admin.auth errors on an invalid/expired token.
+
+    check_revoked=True also refuses tokens of disabled accounts and tokens
+    issued before a password reset. Without it, a deactivated student's
+    existing sign-in would keep working for up to an hour (the token
+    lifetime). It costs one extra Identity Platform lookup per request."""
     _get_app()
-    return fb_auth.verify_id_token(token)
+    return fb_auth.verify_id_token(token, check_revoked=True)

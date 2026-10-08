@@ -13,6 +13,15 @@ def test_missing_token_rejected(fake_db):
     assert response.status_code == 401
 
 
+def test_teacher_without_mfa_rejected(monkeypatch, fake_db):
+    monkeypatch.setattr(
+        "api.app.identity.verify_id_token",
+        lambda token: {"uid": "teacher-1", "role": "teacher", "firebase": {"sign_in_provider": "password"}},
+    )
+    response = client.get("/students", headers=AUTH)
+    assert response.status_code == 401
+
+
 def test_create_requires_teacher(monkeypatch, fake_db):
     as_student(monkeypatch, student_id="s1")
     response = client.post("/students", json={"username": "Alex", "password": "longenough"}, headers=AUTH)

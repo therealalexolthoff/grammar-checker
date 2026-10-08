@@ -11,15 +11,22 @@ def fake_db(monkeypatch):
     monkeypatch.setattr("api.app.jobs.get_db", lambda: db)
     monkeypatch.setattr("api.app.spend.get_db", lambda: db)
     monkeypatch.setattr("api.app.settings.get_db", lambda: db)
+    monkeypatch.setattr("api.app.exercises.get_db", lambda: db)
     return db
+
+
+def become_teacher(monkeypatch):
+    """Signed in as the teacher, with the TOTP second factor. Tests that
+    switch between student and teacher call this directly."""
+    monkeypatch.setattr(
+        "api.app.identity.verify_id_token",
+        lambda token: {"uid": "teacher-1", "role": "teacher", "firebase": {"sign_in_second_factor": "totp"}},
+    )
 
 
 @pytest.fixture
 def as_teacher(monkeypatch):
-    monkeypatch.setattr(
-        "api.app.identity.verify_id_token",
-        lambda token: {"uid": "teacher-1", "role": "teacher"},
-    )
+    become_teacher(monkeypatch)
 
 
 def as_student(monkeypatch, student_id, uid="student-uid-1"):
