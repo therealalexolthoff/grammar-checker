@@ -24,10 +24,10 @@ In scope: grammar and punctuation errors, including spelling and capitalization.
 
 ### 4.1 Accounts and access
 - FR-1. Only the teacher creates student accounts: username (the agreed pseudonym) plus a teacher-set password. No email, no self-signup. Students cannot change their own password; only the teacher resets it.
-- FR-2. The teacher account uses email + password + TOTP MFA (any authenticator app) **[VERIFY Identity Platform MFA requirements]**.
+- FR-2. The teacher account uses email + password + TOTP MFA (any RFC 6238 authenticator app, e.g. Google Authenticator, Authy). **Confirmed:** Identity Platform requires the teacher's email be verified before TOTP enrollment (anti-lockout measure); this only affects the teacher account, since students never enroll in MFA.
 - FR-3. Students can access only their own released content. The teacher can view and manage all student data but cannot log in as a student.
 - FR-4. The teacher can deactivate a student, and delete a student with all their data (including photos). Deletion requires typing the username to confirm and explains that backups expire within 7 days.
-- FR-5. Overrides, reopens, deletions, and password resets are recorded in an audit log.
+- FR-5. Overrides, reopens, deletions, and password resets are recorded in an audit log. **Extended (teacher decision):** student account creation and deactivation are audit-logged too, for the same reason - they're account-lifecycle actions in the same risk category.
 
 ### 4.2 Exercise generation (teacher)
 - FR-6. Teacher picks a student and an exercise kind (grammar or writing), describes the exercise in free text, and presses Generate.
@@ -81,14 +81,15 @@ In scope: grammar and punctuation errors, including spelling and capitalization.
 - FR-36. No in-app AI-use notice is required; the teacher informs students in class that their work is processed by an AI provider.
 
 ## 5. Non-functional requirements
-- **Platform**: Google Cloud only, region US East (us-east4, fall back to us-east5 if Claude on Vertex is unavailable **[VERIFY]**). Single production project, no staging.
-- **Budget**: total under $20/month including cloud and Claude. App-enforced Claude cap; billing alerts at $10 and $15 as backstop.
-- **Privacy**: students identified only by pseudonym and opaque ID; usernames never leave the API; harness gets scrubbed text only (photo-to-transcribe is the one exception); provider must not train on data **[VERIFY Vertex terms]**; logs never contain student text or images.
+- **Platform**: Google Cloud only. **Confirmed:** `us-east4`/`us-east5` do not support current Claude models as fixed regional endpoints on Vertex; use the **`us` multi-region endpoint** instead (keeps data in the US; 10% price premium over the `global` endpoint, which has no US-residency guarantee). Single production project, no staging.
+- **Budget**: total under $20/month including cloud and Claude. App-enforced Claude cap; billing alerts at $10 and $15 as backstop. **Confirmed estimate:** ~$1-4/month at 8 students, ~$5-15/month at 30 students (Claude spend; GCP infra stays within free tiers at this scale) — see ARCHITECTURE.md section 11.
+- **Privacy**: students identified only by pseudonym and opaque ID; usernames never leave the API; harness gets scrubbed text only (photo-to-transcribe is the one exception); **confirmed:** Google/Anthropic do not train models on Vertex customer data; logs never contain student text or images.
 - **Security**: no direct client access to the database or storage; all authorization in the API; photos only via short-lived signed URLs to the teacher; strict output validation of all harness results; student text treated as untrusted data in prompts.
 - **Reliability**: single-teacher classroom use; no HA requirement. Daily Firestore backups with 7-day retention.
 - **Usability**: mobile-first student UI, laptop-first teacher UI, accessible contrast and text size.
 
 ## 6. Open items (decide during build)
-1. Exact Claude model names per operation and Vertex region availability **[VERIFY]**.
+1. ~~Exact Claude model names per operation and Vertex region availability~~ **Resolved:** `claude-sonnet-5` for all five harness operations, via the `us` multi-region Vertex endpoint. Upgrade `evaluate_exercise`/`evaluate_writing`/`transcribe` to `claude-opus-5` only if golden-set results (HARNESS_SPEC.md section 9) show Sonnet missing or miscoding errors.
 2. Teacher-provided golden set of 8 to 10 annotated passages (see HARNESS_SPEC.md section 9) before the first real student session.
 3. Whether to add a "word choice" code later (deliberately excluded now).
+4. Vertex AI Model Garden access for Claude models must be requested per-model before Phase 1 GCP setup; approval has no fixed SLA (seen stuck pending in 2026 reports) — request early so it isn't a blocker. **Confirmed 2026-10-08: access and serving quota are separate gates** — granting Model Garden access does not itself grant a nonzero per-minute request quota, and there is no self-service way to raise it (`gcloud alpha services quota update` caps the override at 0 for this metric). A real quota-increase request via Console is required too — see infra/README.md.

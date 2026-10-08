@@ -88,10 +88,10 @@ Copy text **exactly** as written. Do not correct spelling, grammar, punctuation,
 
 ## 8. Prompt, safety, and model client
 - One versioned prompt template per operation, stored in the repo; the version is recorded on every job.
-- Static prefix (instructions + taxonomy) is separated from dynamic content to allow prompt caching **[VERIFY]**.
+- Static prefix (instructions + taxonomy) is separated from dynamic content to allow prompt caching — confirmed supported on Vertex (in-memory cache, 24-hour TTL, cached-token rate ~1/10th of input rate).
 - Student text and teacher notes are wrapped in clearly delimited data blocks and labeled as data, never instructions. Output is forced into a JSON schema via structured output/tool-use for format only (no real tools).
 - Validation pipeline: schema parse -> semantic checks -> one automatic repair attempt -> else error. The API re-validates independently.
-- Model client: Vertex wrapper with timeouts, one retry on transient errors, low temperature for evaluation/transcription, model name per operation read from `settings`/config. Default: strongest available model for `transcribe`, `evaluate_*`; the agent may propose a cheaper model for generation if projected cost stays under the cap **[VERIFY models available]**.
+- Model client: Vertex wrapper (`us` multi-region endpoint) with timeouts, one retry on transient errors, low temperature for evaluation/transcription, model name per operation read from `settings`/config. **Decided:** `claude-sonnet-5` for all five operations (generate_exercise, transcribe, evaluate_exercise, evaluate_writing, generate_lesson) — the scope is narrow enough (fixed 14-code taxonomy, verbatim transcription, forced JSON schema) that Sonnet should be sufficient. Upgrade `transcribe`/`evaluate_*` to `claude-opus-5` only if the golden set (section 9) shows Sonnet missing or miscoding errors it shouldn't.
 - Logging: job ID, operation, tokens, latency, validation outcome only. No student text, no images.
 - Cost reporting: return token counts; the API owns the cap.
 - **Mock mode**: env flag returns canned schema-valid responses so the entire app can be built and tested without Claude calls.

@@ -1,0 +1,7 @@
+# Generic build: builds the Dockerfile named in _DOCKERFILE with repo root
+# as context, tags it _IMAGE. Used for both services - see infra/setup_gcp.sh.
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["build", "-f", "${_DOCKERFILE}", "-t", "${_IMAGE}", "."]
+images:
+  - "${_IMAGE}"

@@ -1,0 +1,6 @@
+# Dev/test dependencies for the whole monorepo, on top of each service's own
+# requirements.txt. Used by scripts/test.sh; not used in production images.
+-r api/requirements.txt
+-r harness/requirements.txt
+pytest>=8.3
+httpx2>=2.13
