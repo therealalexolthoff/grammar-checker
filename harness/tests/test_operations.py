@@ -102,3 +102,26 @@ def test_real_mode_calls_claude_ops(monkeypatch):
     assert data["model"] == "claude-sonnet-5"
     assert data["tokens_in"] == 123
     assert data["result"]["kind"] == "writing"
+
+
+def test_evaluate_regenerate_note_reaches_the_prompt():
+    from harness.app import prompts
+    from shared.schemas import EvaluateExerciseRequest
+
+    req = EvaluateExerciseRequest(
+        **REQUEST_BASE,
+        items=[{"item_id": "i3", "prompt": "Why?", "response": "Because I go."}],
+        regenerate_note="'go' is fine here",
+    )
+    content = prompts.evaluate_exercise_user_content(req)
+    assert '<data label="regenerate_note">' in content and "'go' is fine here" in content
+
+
+def test_evaluation_of_the_wrong_items_is_rejected():
+    import pytest
+
+    from shared.validation import check_item_ids
+
+    check_item_ids(["i1", "i2"], ["i1", "i2"])
+    with pytest.raises(ValueError):
+        check_item_ids(["i2", "i1"], ["i1", "i2"])

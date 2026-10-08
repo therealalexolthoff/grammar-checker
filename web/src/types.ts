@@ -11,6 +11,22 @@ export type TeacherItem =
   | { id: string; type: "reorder"; chunks: string[]; accepted_orders: string[][]; concept: string; explanation: string }
   | { id: string; type: "short_answer"; prompt: string };
 
+export type Mark = "correct" | "partial" | "incorrect";
+
+// An annotation as the API stores it: start/end are computed by the API.
+export type Annotation = {
+  code: string;
+  span_text: string;
+  occurrence: number;
+  correction: string;
+  explanation: string;
+  start?: number;
+  end?: number;
+};
+
+export type EvaluatedItem = { item_id: string; mark: Mark; feedback: string; annotations: Annotation[] };
+export type Evaluation = { items: EvaluatedItem[] };
+
 export type TeacherExercise = {
   exercise_id: string;
   student_id: string;
@@ -21,6 +37,9 @@ export type TeacherExercise = {
   state: string;
   answers: Answers;
   grades: Record<string, boolean>;
+  scrubbed_answers: Record<string, string>;
+  evaluation: Evaluation | null;
+  evaluation_valid: boolean;
 };
 
 export type ExerciseSummary = { exercise_id: string; title: string; status?: string; state: string };
@@ -37,6 +56,11 @@ export type StudentItem = {
   correct?: boolean;
   correct_answer?: Record<string, string> | string[];
   explanation?: string;
+  // Short answers, after release:
+  mark?: Mark;
+  feedback?: string;
+  answer_text?: string;
+  spans?: { start: number; end: number; code: string; meaning: string }[];
 };
 
 export type StudentExercise = {

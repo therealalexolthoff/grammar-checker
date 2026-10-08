@@ -11,10 +11,17 @@ Firestore layout (docs/ARCHITECTURE.md section 4):
                     Same id as its exercise - every exercise belongs to
                     exactly one student, so there is one submission each.
 
-Submission states used in this phase (the rest of docs/ARCHITECTURE.md
-section 5 comes in Phases 5 and 6):
+Submission states (docs/ARCHITECTURE.md section 5; the writing-only
+states come in Phase 6):
     assigned -> in_progress -> ready_to_release -> released
-                             \\-> scrub_review   (has short answers; Phase 5)
+                             \\-> scrub_review -> evaluating -> draft_ready
+                                  -> ready_to_release   (has short answers;
+                                                          see review.py)
+
+A submission's "answers" are the student's original answers and are never
+changed after submit. Short answers also get a separate "scrubbed_answers"
+copy, which the teacher edits and which is the only student text ever sent
+to the harness (docs/REQUIREMENTS.md FR-18).
 
 Writing exercises come in Phase 6; only kind "grammar" is accepted here.
 """
@@ -35,7 +42,7 @@ from shared.schemas import (
     ShortAnswerItem,
 )
 
-from shared.taxonomy import CODE_DESCRIPTIONS
+from shared.taxonomy import CODE_DESCRIPTIONS, ErrorCode
 
 from .audit import record as record_audit
 from .auth import CurrentUser, get_current_user, require_teacher
@@ -50,6 +57,7 @@ from .models import (
     StudentExerciseSummary,
     StudentExerciseView,
     StudentItemView,
+    SpanView,
 )
 
 router = APIRouter(tags=["exercises"])
@@ -58,7 +66,8 @@ router = APIRouter(tags=["exercises"])
 _OPEN_STATES = ("assigned", "in_progress")
 # States the teacher may reopen from. Not "released": once the student has
 # seen results, reopening would let them re-answer with the key in view.
-_REOPENABLE_STATES = ("scrub_review", "ready_to_release")
+# Not "evaluating": an AI call is in progress.
+_REOPENABLE_STATES = ("scrub_review", "draft_ready", "ready_to_release")
 
 
 def _now() -> datetime:
@@ -154,9 +163,21 @@ def _load_for_student(exercise_id: str, user: CurrentUser) -> dict:
     return exercise
 
 
+def call_ai(operation: str, req) -> tuple[object, str]:
+    """One harness call, with failures turned into teacher-readable errors.
+    Invalid output is never returned (FR-8). Returns (result, job id)."""
+    try:
+        return call_harness(operation, req)
+    except SpendCapReached as exc:
+        raise HTTPException(status_code=409, detail=f"{exc}. AI generation and evaluation are paused.") from exc
+    except HarnessValidationFailed as exc:
+        raise HTTPException(
+            status_code=502, detail="The AI result could not be used. Nothing was changed - please try again."
+        ) from exc
+
+
 def _generate(student_id: str, description: str, note: str | None) -> GrammarExerciseDraft:
-    """One generate_exercise harness call. Turns harness failures into
-    teacher-readable errors; invalid drafts are never returned (FR-8)."""
+    """One generate_exercise harness call."""
     req = GenerateExerciseRequest(
         student_id=student_id,
         request_id=str(uuid.uuid4()),
@@ -165,14 +186,7 @@ def _generate(student_id: str, description: str, note: str | None) -> GrammarExe
         description=description,
         regenerate_note=note or None,
     )
-    try:
-        result = call_harness("generate_exercise", req)
-    except SpendCapReached as exc:
-        raise HTTPException(status_code=409, detail=f"{exc}. Generation is paused.") from exc
-    except HarnessValidationFailed as exc:
-        raise HTTPException(
-            status_code=502, detail="The AI draft could not be used. Nothing was saved - please try again."
-        ) from exc
+    result, _ = call_ai("generate_exercise", req)
     if not isinstance(result, GrammarExerciseDraft):
         raise HTTPException(
             status_code=502, detail="The AI returned the wrong kind of exercise. Please try again."
@@ -193,10 +207,14 @@ def _teacher_view(exercise_id: str, exercise: dict) -> dict:
         "state": submission.get("state", "draft"),
         "answers": submission.get("answers", {}),
         "grades": submission.get("grades", {}),
+        # Short answers only (Phase 5): see review.py.
+        "scrubbed_answers": submission.get("scrubbed_answers", {}),
+        "evaluation": submission.get("evaluation"),
+        "evaluation_valid": submission.get("evaluation_valid", False),
     }
 
 
-def _student_item(item, released: bool, grades: dict) -> StudentItemView:
+def _student_item(item, released: bool, grades: dict, evaluation: dict | None, scrubbed: dict) -> StudentItemView:
     if isinstance(item, FillBlankItem):
         view = StudentItemView(
             id=item.id, type=item.type, text=item.text, blank_ids=[b.id for b in item.blanks]
@@ -207,8 +225,23 @@ def _student_item(item, released: bool, grades: dict) -> StudentItemView:
         view = StudentItemView(id=item.id, type=item.type, prompt=item.prompt)
 
     # Results only after release (FR-16: students see nothing until then).
-    # Short-answer results arrive with evaluation in Phase 5.
-    if released and not isinstance(item, ShortAnswerItem):
+    if released and isinstance(item, ShortAnswerItem):
+        # FR-21: the mark, the feedback sentence, and the answer with its
+        # error spans marked by code only - corrections and explanations
+        # are teacher-only. Spans are offsets into the scrubbed text (the
+        # text that was evaluated), so that is the text shown here.
+        result = next((r for r in (evaluation or {}).get("items", []) if r["item_id"] == item.id), None)
+        if result is not None:
+            view.mark = result["mark"]
+            view.feedback = result["feedback"]
+            view.answer_text = scrubbed.get(item.id, "")
+            view.spans = [
+                SpanView(
+                    start=a["start"], end=a["end"], code=a["code"], meaning=CODE_DESCRIPTIONS[ErrorCode(a["code"])]
+                )
+                for a in result["annotations"]
+            ]
+    elif released:
         view.correct = grades.get(item.id, False)
         view.explanation = item.explanation
         if not view.correct:  # FR-21: show the correct answer for wrong items
@@ -378,8 +411,19 @@ def reopen_submission(exercise_id: str, user: CurrentUser = Depends(require_teac
     submission = _load_submission(exercise_id)
     if submission is None or submission["state"] not in _REOPENABLE_STATES:
         raise HTTPException(status_code=409, detail="only submitted, unreleased work can be reopened")
-    # Answers are kept so the student continues where they left off.
-    _submission_ref(exercise_id).update({"state": "in_progress", "grades": {}, "updated_at": _now()})
+    # Answers are kept so the student continues where they left off. Grades,
+    # the scrubbed copy and any evaluation are rebuilt after the next submit.
+    _submission_ref(exercise_id).update(
+        {
+            "state": "in_progress",
+            "grades": {},
+            "scrubbed_answers": {},
+            "evaluation": None,
+            "evaluation_ai": None,
+            "evaluation_valid": False,
+            "updated_at": _now(),
+        }
+    )
     record_audit(user.uid, "reopen_submission", target=exercise_id)
     return _teacher_view(exercise_id, exercise)
 
@@ -425,7 +469,12 @@ def get_exercise(exercise_id: str, user: CurrentUser = Depends(get_current_user)
         title=exercise["title"],
         state=state,
         answers=answers,
-        items=[_student_item(item, released, grades) for item in draft.items],
+        items=[
+            _student_item(
+                item, released, grades, submission.get("evaluation"), submission.get("scrubbed_answers", {})
+            )
+            for item in draft.items
+        ],
     )
     # Serialized through the model, so only the fields it declares go out.
     return view.model_dump(mode="json", exclude_none=True)
@@ -453,15 +502,17 @@ def submit_answers(exercise_id: str, body: AnswersBody, user: CurrentUser = Depe
         raise HTTPException(status_code=403, detail="students only")
     exercise = _load_for_student(exercise_id, user)
     draft = _draft(exercise)
-    has_short_answers = any(isinstance(item, ShortAnswerItem) for item in draft.items)
+    short_answer_ids = [item.id for item in draft.items if isinstance(item, ShortAnswerItem)]
     _update_open_submission(
         exercise_id,
         check=lambda: _check_answer_shapes(draft, body.answers),
         changes={
             "answers": body.answers,
             "grades": grade_items(draft.items, body.answers),
+            # The teacher's editable copy starts as the original (FR-18).
+            "scrubbed_answers": {item_id: body.answers.get(item_id, "") for item_id in short_answer_ids},
             # FR-17: no short answers means no scrub or evaluation step.
-            "state": "scrub_review" if has_short_answers else "ready_to_release",
+            "state": "scrub_review" if short_answer_ids else "ready_to_release",
             "submitted_at": _now(),
             "updated_at": _now(),
         },

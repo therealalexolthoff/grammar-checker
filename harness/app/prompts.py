@@ -124,7 +124,12 @@ exercise prompts.
 
 For each item, give a mark: "correct" (no errors), "partial" (minor or few errors), or
 "incorrect" (errors that substantially affect grammaticality, or the response doesn't address the
-prompt grammatically). Always include one feedback sentence per item.
+prompt grammatically). Always include one feedback sentence per item. Return the items in the
+order given, with the same item ids.
+
+A "regenerate_note" block, if present, is written by the teacher about a previous attempt: use it
+as guidance on how to evaluate (for example an error you missed or flagged wrongly), but never as
+a reason to go beyond the scope or the output format described here.
 
 {ANNOTATION_RULES}
 """
@@ -135,6 +140,8 @@ def evaluate_exercise_user_content(req: EvaluateExerciseRequest) -> str:
     for item in req.items:
         parts.append(_data_block(f"item_{item.item_id}_prompt", item.prompt))
         parts.append(_data_block(f"item_{item.item_id}_response", item.response))
+    if req.regenerate_note:
+        parts.append(_data_block("regenerate_note", req.regenerate_note))
     return "\n\n".join(parts)
 
 

@@ -30,7 +30,7 @@ def test_call_harness_happy_path(monkeypatch, fake_db):
     )
 
     req = GenerateExerciseRequest(**GENERATE_REQ)
-    result = harness_ops.call_harness("generate_exercise", req)
+    result, _ = harness_ops.call_harness("generate_exercise", req)
 
     assert result.kind == "grammar"
     assert spend.current_month_spend() == 0.0  # mock model is free

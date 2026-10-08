@@ -2,6 +2,7 @@
 // released, the results (correct/incorrect, right answer, explanation).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api";
+import SpannedText from "../SpannedText";
 import type { Answer, Answers, StudentExercise, StudentItem } from "../types";
 import { stateLabel } from "./StudentApp";
 
@@ -231,7 +232,7 @@ function Results({ exercise }: { exercise: StudentExercise }) {
   return (
     <ol className="items">
       {exercise.items.map((item) => (
-        <li key={item.id} className={`item ${item.correct === undefined ? "" : item.correct ? "right" : "wrong"}`}>
+        <li key={item.id} className={`item ${resultClass(item)}`}>
           <ResultItem item={item} answer={exercise.answers[item.id]} />
         </li>
       ))}
@@ -239,13 +240,42 @@ function Results({ exercise }: { exercise: StudentExercise }) {
   );
 }
 
+function resultClass(item: StudentItem): string {
+  if (item.type === "short_answer") {
+    return item.mark === "correct" ? "right" : item.mark === "incorrect" ? "wrong" : item.mark ? "partial" : "";
+  }
+  return item.correct === undefined ? "" : item.correct ? "right" : "wrong";
+}
+
+const MARK_TEXT = { correct: "✓ Correct", partial: "◐ Partly correct", incorrect: "✗ Not quite" };
+
 function ResultItem({ item, answer }: { item: StudentItem; answer?: Answer }) {
   if (item.type === "short_answer") {
-    // Short-answer feedback arrives with evaluation (Phase 5).
+    // FR-21: the mark, the feedback sentence, and the answer with each
+    // error marked by its code. Tap or hover a code to see what it means.
+    if (!item.mark) {
+      return (
+        <>
+          <p className="instruction">{item.prompt}</p>
+          <p className="your-answer">{(answer as string) || "(no answer)"}</p>
+        </>
+      );
+    }
+    const spans = item.spans ?? [];
+    const meanings = [...new Map(spans.map((s) => [s.code, s.meaning])).entries()];
     return (
       <>
+        <p className="verdict">{MARK_TEXT[item.mark]}</p>
         <p className="instruction">{item.prompt}</p>
-        <p className="your-answer">{(answer as string) || "(no answer)"}</p>
+        <SpannedText text={item.answer_text ?? ""} spans={spans} />
+        {meanings.length > 0 && (
+          <ul className="legend">
+            {meanings.map(([code, meaning]) => (
+              <li key={code}><span className="code">{code}</span> {meaning}</li>
+            ))}
+          </ul>
+        )}
+        {item.feedback && <p className="explanation">{item.feedback}</p>}
       </>
     );
   }

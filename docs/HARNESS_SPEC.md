@@ -7,7 +7,7 @@ The harness is a stateless Python (FastAPI) Cloud Run service. It has **no** dat
 |---|---|---|
 | `generate_exercise` | teacher description, kind (grammar/writing), context bundle, optional regeneration note | exercise draft (section 4) |
 | `transcribe` | photo pages in order | verbatim text per page |
-| `evaluate_exercise` | scrubbed short-answer responses with their prompts | per item: mark, annotations, one feedback sentence |
+| `evaluate_exercise` | scrubbed short-answer responses with their prompts, optional regeneration note | per item (same ids, same order): mark, annotations, one feedback sentence |
 | `evaluate_writing` | scrubbed text and the writing prompt | annotations, one overall comment |
 | `generate_lesson` | teacher description, context bundle (profile summary, notes, scrubbed approved excerpts) | lesson (section 6) |
 

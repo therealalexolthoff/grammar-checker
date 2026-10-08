@@ -107,3 +107,24 @@ tr.clickable { cursor: pointer; }
 tr.clickable:hover { background: #eef3fb; }
 td.actions { text-align: right; white-space: nowrap; }
 td.actions button + button { margin-left: 0.5rem; }
+
+/* Short answers: partial marks, error spans with codes (FR-21) */
+.item.partial { border-left: 6px solid #b26a00; }
+.item.partial .verdict { color: #8a5200; }
+.spanned { line-height: 2.2; white-space: pre-wrap; }
+mark.span { background: #fde7c4; border-bottom: 2px solid #b26a00; padding: 0 0.1rem; border-radius: 3px; color: inherit; }
+.code {
+  display: inline-block; font-size: 0.7rem; font-weight: 700; line-height: 1;
+  padding: 0.15rem 0.3rem; margin-left: 0.2rem; border-radius: 4px;
+  background: #8a5200; color: #fff; vertical-align: super;
+}
+.legend { list-style: none; padding: 0; margin: 0.5rem 0; font-size: 0.95rem; }
+.legend .code { vertical-align: baseline; margin: 0 0.4rem 0 0; }
+
+/* Teacher review */
+.row.top { align-items: flex-start; }
+.original { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem; margin-top: 0.25rem; white-space: pre-wrap; }
+.evaluation { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 0.5rem; }
+table.annotations td { padding: 0.3rem; vertical-align: top; }
+table.annotations input, table.annotations select { margin-top: 0; }
+.narrow-input { width: 4.5rem; }

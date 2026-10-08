@@ -13,6 +13,13 @@ class SpanError(ValueError):
     pass
 
 
+def check_item_ids(result_ids: list[str], request_ids: list[str]) -> None:
+    """An evaluation must cover exactly the items sent, in the same order -
+    otherwise spans would be checked against the wrong answer's text."""
+    if result_ids != request_ids:
+        raise ValueError(f"evaluated items {result_ids} don't match the items sent {request_ids}")
+
+
 def resolve_span(text: str, span_text: str, occurrence: int) -> tuple[int, int]:
     """Returns the (start, end) character offsets of the `occurrence`-th
     (1-based) occurrence of span_text in text. Raises SpanError if there

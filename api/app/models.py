@@ -57,6 +57,25 @@ class AnswersBody(BaseModel):
     answers: dict[str, Answer]
 
 
+class SpanView(BaseModel):
+    """An error span as a student sees it: where it is, its code, and what
+    the code means - never the correction or explanation (FR-21)."""
+
+    start: int
+    end: int
+    code: str
+    meaning: str
+
+
+class ScrubbedBody(BaseModel):
+    # {short-answer item id: the teacher's scrubbed copy of the answer}
+    scrubbed_answers: dict[str, AnswerText]
+
+
+class EvaluateBody(BaseModel):
+    note: str = Field(default="", max_length=_MAX_DESCRIPTION)  # regenerate note (FR-20)
+
+
 class StudentItemView(BaseModel):
     """One exercise item as a student may see it. Answer keys, concept
     codes and explanations are absent before release. The student view is
@@ -73,6 +92,11 @@ class StudentItemView(BaseModel):
     correct: bool | None = None
     correct_answer: dict[str, str] | list[str] | None = None  # only for wrong items
     explanation: str | None = None
+    # Short answers, only after release:
+    mark: str | None = None  # correct / partial / incorrect
+    feedback: str | None = None
+    answer_text: str | None = None  # the evaluated (scrubbed) text the spans point into
+    spans: list[SpanView] | None = None
 
 
 class StudentExerciseView(BaseModel):

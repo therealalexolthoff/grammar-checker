@@ -19,7 +19,7 @@ from .taxonomy import ErrorCode
 # section 8). Lives here, not in the harness, because the API sends it on
 # every request - one definition means the two services can't disagree.
 # Bump it whenever any prompt in harness/app/prompts.py changes.
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 
 # How a fill_blank item's text marks each blank: three or more underscores.
 # The student screen puts one input box at each marker, in order.
@@ -167,6 +167,8 @@ class ScrubbedShortAnswer(StrictModel):
 
 class EvaluateExerciseRequest(BaseHarnessRequest):
     items: list[ScrubbedShortAnswer] = Field(min_length=1)
+    # The teacher's optional note when regenerating an evaluation (FR-20).
+    regenerate_note: str | None = None
 
 
 class EvaluateExerciseItemResult(StrictModel):

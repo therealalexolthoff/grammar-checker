@@ -34,7 +34,7 @@ from shared.schemas import (
     TranscribeResult,
     WritingExerciseDraft,
 )
-from shared.validation import resolve_annotations
+from shared.validation import check_item_ids, resolve_annotations
 
 from . import mock, prompts
 from .claude_ops import call_claude
@@ -137,6 +137,7 @@ def evaluate_exercise(req: EvaluateExerciseRequest) -> EvaluateExerciseResponse:
     start = time.monotonic()
 
     def check(result: EvaluateExerciseResult) -> None:
+        check_item_ids([i.item_id for i in result.items], [i.item_id for i in req.items])
         for item, item_req in zip(result.items, req.items, strict=True):
             resolve_annotations(item.annotations, item_req.response)
 

@@ -1,9 +1,11 @@
 // One exercise, teacher side. Draft: edit, regenerate with a note, tick
 // the approval checklist, assign. Assigned: the student's answers and
-// grades, release results, reopen.
+// grades, short-answer scrub and evaluation (ShortAnswerReview), release
+// results, reopen.
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Code, TeacherExercise, TeacherItem } from "../types";
+import ShortAnswerReview from "./ShortAnswerReview";
 
 export function stateLabel(state: string): string {
   const labels: Record<string, string> = {
@@ -11,6 +13,8 @@ export function stateLabel(state: string): string {
     assigned: "Assigned",
     in_progress: "In progress",
     scrub_review: "Submitted – awaiting scrub",
+    evaluating: "Evaluating",
+    draft_ready: "Draft evaluation ready",
     ready_to_release: "Ready to release",
     released: "Released",
   };
@@ -261,7 +265,10 @@ function ItemEditor({ item, codes, onEdit }: { item: EditItem; codes: Code[]; on
 function Review({ exercise, onChange }: { exercise: TeacherExercise; onChange: (e: TeacherExercise) => void }) {
   const [confirmReopen, setConfirmReopen] = useState(false);
   const [error, setError] = useState("");
-  const submitted = ["scrub_review", "ready_to_release", "released"].includes(exercise.state);
+  const submitted = !["assigned", "in_progress"].includes(exercise.state);
+  const hasShortAnswers = exercise.items.some((it) => it.type === "short_answer");
+  // Once submitted, short answers are handled by the review panel below.
+  const listed = submitted ? exercise.items.filter((it) => it.type !== "short_answer") : exercise.items;
 
   async function act(path: string) {
     setError("");
@@ -279,24 +286,22 @@ function Review({ exercise, onChange }: { exercise: TeacherExercise; onChange: (
       <p>
         Stage: <strong>{stateLabel(exercise.state)}</strong>
       </p>
-      {exercise.state === "scrub_review" && (
-        <p className="notice">This exercise has short answers. Scrubbing and evaluation arrive in the next phase.</p>
-      )}
-
       <ol className="items">
-        {exercise.items.map((item) => (
+        {listed.map((item) => (
           <li key={item.id} className="item">
             <TeacherItemResult item={item} answer={exercise.answers[item.id]} grade={submitted ? exercise.grades[item.id] : undefined} />
           </li>
         ))}
       </ol>
 
+      {submitted && hasShortAnswers && <ShortAnswerReview exercise={exercise} onChange={onChange} />}
+
       {error && <p className="error">{error}</p>}
       <div className="row">
         {exercise.state === "ready_to_release" && (
           <button className="primary" onClick={() => act("release")}>Release results to student</button>
         )}
-        {(exercise.state === "scrub_review" || exercise.state === "ready_to_release") &&
+        {["scrub_review", "draft_ready", "ready_to_release"].includes(exercise.state) &&
           (confirmReopen ? (
             <>
               <span>Send this back to the student to keep working? (This is recorded in the audit log.)</span>

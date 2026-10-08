@@ -18,7 +18,7 @@ from shared.schemas import (
     TranscribeRequest,
     TranscribeResponse,
 )
-from shared.validation import resolve_annotations
+from shared.validation import check_item_ids, resolve_annotations
 
 from . import jobs, spend
 from .cost import estimate_cost
@@ -49,15 +49,17 @@ def _validate_semantics(operation: str, req, result) -> None:
     by the shared Pydantic schema itself, which both sides parse with.
     """
     if operation == "evaluate_exercise":
+        check_item_ids([i.item_id for i in result.items], [i.item_id for i in req.items])
         for item, item_req in zip(result.items, req.items, strict=True):
             resolve_annotations(item.annotations, item_req.response)
     elif operation == "evaluate_writing":
         resolve_annotations(result.annotations, req.text)
 
 
-def call_harness(operation: str, req) -> object:
+def call_harness(operation: str, req) -> tuple[object, str]:
     """Calls one harness operation end to end. Returns the validated
-    operation-specific result (not the response envelope)."""
+    operation-specific result (not the response envelope) and the job id,
+    so the caller can later record what the teacher did with the result."""
     if operation not in _OPERATIONS:
         raise ValueError(f"unknown operation {operation!r}")
     _, response_cls = _OPERATIONS[operation]
@@ -88,4 +90,4 @@ def call_harness(operation: str, req) -> object:
         validation_outcome="passed",
     )
     spend.record_spend(cost_usd)
-    return envelope.result
+    return envelope.result, job_id
