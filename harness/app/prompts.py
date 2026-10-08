@@ -8,6 +8,8 @@ The version number for these templates is shared.schemas.PROMPT_VERSION -
 bump it whenever anything in this file changes.
 """
 
+import re
+
 from shared.schemas import (
     EvaluateExerciseRequest,
     EvaluateWritingRequest,
@@ -22,8 +24,15 @@ def _taxonomy_block() -> str:
     return "\n".join(f"- {code.value}: {desc}" for code, desc in CODE_DESCRIPTIONS.items())
 
 
+# A student who types "</data>" could otherwise close the data block early
+# and have what follows read as instructions. Any data tag inside the text
+# is defanged (its "<" becomes "&lt;") so the block can only end where we end it.
+_DATA_TAG = re.compile(r"<(\s*/?\s*data)", re.IGNORECASE)
+
+
 def _data_block(label: str, text: str) -> str:
-    return f'<data label="{label}">\n{text}\n</data>'
+    safe = _DATA_TAG.sub(r"&lt;\1", text)
+    return f'<data label="{label}">\n{safe}\n</data>'
 
 
 DATA_BLOCK_NOTE = (

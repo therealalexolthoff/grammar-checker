@@ -29,6 +29,14 @@ It creates the project, enables the required APIs, creates Firestore (native mod
 - **Teacher role**: the API refuses tokens without a role claim. After creating the teacher account and enrolling TOTP, run `GOOGLE_CLOUD_PROJECT=<project id> python infra/set_teacher_role.py <teacher email>` (prints the account's current state; only writes if the role is missing).
 - **Billing alerts**: Console > Billing > Budgets & alerts. Set alerts at $10 and $15 (see docs/REQUIREMENTS.md section 5 - these are a backstop behind the app's own spend cap, not the primary control).
 
+## 4. Hardening (Phase 8) - re-runnable
+
+- **Firestore rules** (deny all client access): `GOOGLE_CLOUD_PROJECT=<project id> .venv/bin/python infra/deploy_firestore_rules.py`
+- **Alerts** emailed to the teacher (failed AI calls, server errors, spend): `ALERT_EMAIL=<email> ./infra/monitoring.sh`
+- **Golden set** after any prompt or model change: `.venv/bin/python scripts/golden_set.py [set.json]` (the real set lives in `golden/private/`, git-ignored)
+
+See docs/SECURITY_REVIEW.md for what these protect and how it was checked.
+
 ## Notes
 
 - `setup_gcp.sh` is idempotent for most steps (safe to re-run), but re-creating the project or billing link will fail loudly if they already exist - that's expected, just skip ahead.

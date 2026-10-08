@@ -12,8 +12,9 @@ password reset.
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from google.cloud.firestore_v1.base_query import FieldFilter
 
-from . import identity
+from . import identity, photos
 from .audit import record as record_audit
 from .auth import CurrentUser, require_self_or_teacher, require_teacher
 from .firestore_client import get_db
@@ -135,6 +136,16 @@ def delete_student(
     if body.confirm_username != doc.get("username"):
         raise HTTPException(status_code=400, detail="confirm_username does not match")
 
+    # Everything the student owns (FR-4): photos, exercises, submissions,
+    # lessons, and the job records of their AI calls (a failed job's error
+    # can quote their text). The student record goes last, so if anything
+    # fails partway, running the deletion again finds it and finishes.
+    # The audit log keeps only ids, so its entries stay.
+    photos.delete_folder(f"{student_id}/")
+    db = get_db()
+    for collection in ("exercises", "submissions", "lessons", "jobs"):
+        for owned in db.collection(collection).where(filter=FieldFilter("student_id", "==", student_id)).stream():
+            db.collection(collection).document(owned.id).delete()
     identity.delete_user(doc.get("auth_uid"))
     doc_ref.delete()
     record_audit(user.uid, "delete_student", target=student_id)

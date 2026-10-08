@@ -9,6 +9,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
+from shared.logs import catch_unexpected_errors
+
 from .config import settings
 from .exercises import router as exercises_router
 from .harness_client import call_harness_health
@@ -19,6 +21,7 @@ from .students import router as students_router
 from .writing import router as writing_router
 
 app = FastAPI(title="ESL Tool API")
+catch_unexpected_errors(app)  # no tracebacks in the logs: they can quote student text
 app.include_router(students_router)
 app.include_router(exercises_router)
 app.include_router(review_router)

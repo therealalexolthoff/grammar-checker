@@ -31,9 +31,18 @@ def test_fail_job(fake_db):
 
 def test_spend_accumulates(fake_db):
     assert spend.current_month_spend() == 0.0
-    spend.record_spend(0.01)
-    spend.record_spend(0.02)
+    spend.record_spend(0.01, cap_usd=20.0)
+    spend.record_spend(0.02, cap_usd=20.0)
     assert spend.current_month_spend() == pytest.approx(0.03)
+
+
+def test_crossing_75_percent_of_the_cap_is_logged_once(fake_db, capsys):
+    spend.record_spend(14.0, cap_usd=20.0)
+    assert capsys.readouterr().out == ""
+    spend.record_spend(1.5, cap_usd=20.0)  # 15.50 crosses 15.00
+    assert '"event": "spend_threshold"' in capsys.readouterr().out
+    spend.record_spend(1.0, cap_usd=20.0)
+    assert capsys.readouterr().out == ""
 
 
 def test_settings_defaults_when_doc_missing(fake_db):

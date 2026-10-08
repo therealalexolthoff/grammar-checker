@@ -10,6 +10,7 @@ access, ever, and never log student text or images.
 
 from fastapi import FastAPI
 
+from shared.logs import catch_unexpected_errors
 from shared.schemas import (
     EvaluateExerciseRequest,
     EvaluateExerciseResponse,
@@ -26,6 +27,7 @@ from shared.schemas import (
 from . import operations
 
 app = FastAPI(title="ESL Tool Harness")
+catch_unexpected_errors(app)  # no tracebacks in the logs: they can quote student text
 
 
 @app.get("/health")

@@ -81,6 +81,13 @@ def delete(path: str) -> None:
     _bucket().blob(path).delete()
 
 
+def delete_folder(prefix: str) -> None:
+    """Deletes every photo whose path starts with `prefix` - e.g. all of
+    one student's photos, "{student_id}/"."""
+    for blob in _bucket().list_blobs(prefix=prefix):
+        blob.delete()
+
+
 def signed_url(path: str) -> str:
     """A link that shows one photo for SIGNED_URL_LIFETIME, then stops
     working. On Cloud Run there is no private key file, so the URL is

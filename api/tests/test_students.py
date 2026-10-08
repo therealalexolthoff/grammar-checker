@@ -106,6 +106,7 @@ def test_delete_requires_matching_username(monkeypatch, fake_db, as_teacher):
         {"username": "Alex", "auth_uid": "u1", "active": True}
     )
     monkeypatch.setattr("api.app.identity.delete_user", lambda uid: None)
+    monkeypatch.setattr("api.app.photos.delete_folder", lambda prefix: None)
 
     wrong = client.request(
         "DELETE", "/students/s1", json={"confirm_username": "NotAlex"}, headers=AUTH

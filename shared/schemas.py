@@ -19,7 +19,7 @@ from .taxonomy import ErrorCode
 # section 8). Lives here, not in the harness, because the API sends it on
 # every request - one definition means the two services can't disagree.
 # Bump it whenever any prompt in harness/app/prompts.py changes.
-PROMPT_VERSION = "v5"
+PROMPT_VERSION = "v6"
 
 # How a fill_blank item's text marks each blank: three or more underscores.
 # The student screen puts one input box at each marker, in order.

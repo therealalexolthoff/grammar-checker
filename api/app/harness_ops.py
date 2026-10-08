@@ -18,6 +18,7 @@ from shared.schemas import (
     TranscribeRequest,
     TranscribeResponse,
 )
+from shared.logs import log_event
 from shared.validation import check_item_ids, check_page_numbers, resolve_annotations
 
 from . import jobs, spend
@@ -69,6 +70,7 @@ def call_harness(operation: str, req) -> tuple[object, str]:
 
     settings = get_settings()
     if spend.current_month_spend() + settings.estimated_cost_per_call_usd > settings.monthly_cap_usd:
+        log_event("spend_cap_reached", "WARNING", operation=operation, cap_usd=settings.monthly_cap_usd)
         raise SpendCapReached(f"monthly spend cap (${settings.monthly_cap_usd:.2f}) would be exceeded")
 
     job_id = jobs.create_job(operation, req.student_id, req.prompt_version)
@@ -78,7 +80,9 @@ def call_harness(operation: str, req) -> tuple[object, str]:
         envelope = response_cls.model_validate(raw)
         _validate_semantics(operation, req, envelope.result)
     except Exception as exc:
-        jobs.fail_job(job_id, str(exc))
+        jobs.fail_job(job_id, str(exc))  # kept in Firestore for the teacher's eyes only
+        # The error type only: its message can quote student text.
+        log_event("harness_call_failed", "WARNING", operation=operation, job_id=job_id, error_type=type(exc).__name__)
         raise HarnessValidationFailed(str(exc)) from exc
 
     cost_usd = estimate_cost(envelope.model, envelope.tokens_in, envelope.tokens_out, envelope.tokens_cached)
@@ -92,5 +96,5 @@ def call_harness(operation: str, req) -> tuple[object, str]:
         cost_usd=cost_usd,
         validation_outcome="passed",
     )
-    spend.record_spend(cost_usd)
+    spend.record_spend(cost_usd, settings.monthly_cap_usd)
     return envelope.result, job_id

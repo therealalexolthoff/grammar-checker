@@ -63,8 +63,13 @@ def reset_password(uid: str, new_password: str) -> None:
 
 
 def delete_user(uid: str) -> None:
+    """Deletes the login. Already gone is fine, so a student deletion that
+    stopped partway can simply be run again."""
     _get_app()
-    fb_auth.delete_user(uid)
+    try:
+        fb_auth.delete_user(uid)
+    except fb_auth.UserNotFoundError:
+        pass
 
 
 def verify_id_token(token: str) -> dict:
