@@ -16,6 +16,8 @@ class Settings:
         # sees them) but kept out of the repo all the same.
         self.firebase_api_key: str = os.environ.get("FIREBASE_API_KEY", "")
         self.firebase_auth_domain: str = os.environ.get("FIREBASE_AUTH_DOMAIN", "")
+        # The private bucket for handwriting photos (infra/setup_gcp.sh).
+        self.photo_bucket: str = os.environ.get("PHOTO_BUCKET", "")
 
     @property
     def is_dev(self) -> bool:

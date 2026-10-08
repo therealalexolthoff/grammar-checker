@@ -5,3 +5,5 @@ google-auth>=2.35
 requests>=2.32
 firebase-admin>=6.5
 google-cloud-firestore>=2.19
+# Already installed as part of firebase-admin; listed because photos.py uses it directly.
+google-cloud-storage>=2.18

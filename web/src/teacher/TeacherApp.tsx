@@ -43,6 +43,7 @@ export default function TeacherApp() {
 
 function StudentExercises({ studentId, onOpen }: { studentId: string; onOpen: (id: string) => void }) {
   const [list, setList] = useState<ExerciseSummary[] | null>(null);
+  const [kind, setKind] = useState<"grammar" | "writing">("grammar");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -56,7 +57,7 @@ function StudentExercises({ studentId, onOpen }: { studentId: string; onOpen: (i
     setBusy(true);
     setError("");
     try {
-      const ex = await api<TeacherExercise>("/exercises/generate", "POST", { student_id: studentId, description });
+      const ex = await api<TeacherExercise>("/exercises/generate", "POST", { student_id: studentId, kind, description });
       onOpen(ex.exercise_id);
     } catch (err) {
       setError((err as Error).message);
@@ -67,13 +68,26 @@ function StudentExercises({ studentId, onOpen }: { studentId: string; onOpen: (i
   return (
     <>
       <form onSubmit={generate} className="stack panel">
+        <div className="row">
+          <strong>New exercise:</strong>
+          <label className="check">
+            <input type="radio" checked={kind === "grammar"} onChange={() => setKind("grammar")} /> Grammar
+          </label>
+          <label className="check">
+            <input type="radio" checked={kind === "writing"} onChange={() => setKind("writing")} /> Writing
+          </label>
+        </div>
         <label>
-          New grammar exercise – describe it
+          Describe it
           <textarea
             rows={3}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. 4 fill-in-the-blank items on past simple vs present perfect, and 2 word-order items"
+            placeholder={
+              kind === "grammar"
+                ? "e.g. 4 fill-in-the-blank items on past simple vs present perfect, and 2 word-order items"
+                : "e.g. a short email to a landlord about a broken heater, 80 to 150 words"
+            }
             required
           />
         </label>

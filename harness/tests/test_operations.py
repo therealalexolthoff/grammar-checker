@@ -117,6 +117,27 @@ def test_evaluate_regenerate_note_reaches_the_prompt():
     assert '<data label="regenerate_note">' in content and "'go' is fine here" in content
 
 
+def test_writing_regenerate_note_reaches_the_prompt():
+    from harness.app import prompts
+    from shared.schemas import EvaluateWritingRequest
+
+    req = EvaluateWritingRequest(**REQUEST_BASE, prompt="Describe a trip.", text="I go there.", regenerate_note="keep it")
+    content = prompts.evaluate_writing_user_content(req)
+    assert '<data label="regenerate_note">' in content and "keep it" in content
+    assert "regenerate_note" in prompts.EVALUATE_WRITING_SYSTEM
+
+
+def test_transcription_must_cover_every_page_in_order():
+    import pytest
+
+    from shared.validation import check_page_numbers
+
+    check_page_numbers([1, 2], 2)
+    for wrong in ([1], [2, 1], [1, 2, 3]):
+        with pytest.raises(ValueError):
+            check_page_numbers(wrong, 2)
+
+
 def test_evaluation_of_the_wrong_items_is_rejected():
     import pytest
 

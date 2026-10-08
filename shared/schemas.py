@@ -19,7 +19,7 @@ from .taxonomy import ErrorCode
 # section 8). Lives here, not in the harness, because the API sends it on
 # every request - one definition means the two services can't disagree.
 # Bump it whenever any prompt in harness/app/prompts.py changes.
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
 
 # How a fill_blank item's text marks each blank: three or more underscores.
 # The student screen puts one input box at each marker, in order.
@@ -120,8 +120,14 @@ class WritingExerciseDraft(StrictModel):
     kind: Literal["writing"] = "writing"
     title: str
     prompt: str
-    min_words: int | None = None
-    max_words: int | None = None
+    min_words: int | None = Field(default=None, ge=1)
+    max_words: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def check_word_range(self) -> "WritingExerciseDraft":
+        if self.min_words and self.max_words and self.min_words > self.max_words:
+            raise ValueError(f"min_words ({self.min_words}) is more than max_words ({self.max_words})")
+        return self
 
 
 class GenerateExerciseRequest(BaseHarnessRequest):
@@ -185,6 +191,8 @@ class EvaluateExerciseResult(StrictModel):
 class EvaluateWritingRequest(BaseHarnessRequest):
     prompt: str
     text: str
+    # The teacher's optional note when regenerating an evaluation (FR-20).
+    regenerate_note: str | None = None
 
 
 class EvaluateWritingResult(StrictModel):

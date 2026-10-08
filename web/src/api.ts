@@ -14,12 +14,14 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
   const user = currentAuth().currentUser;
   const headers: Record<string, string> = {};
   if (user) headers.Authorization = `Bearer ${await user.getIdToken()}`;
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  // A Blob (a photo) is sent as the raw request body; anything else as JSON.
+  const isFile = body instanceof Blob;
+  if (body !== undefined) headers["Content-Type"] = isFile ? body.type : "application/json";
 
   const response = await fetch(path, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : isFile ? body : JSON.stringify(body),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) throw new ApiError(errorText(data, response.status), response.status);

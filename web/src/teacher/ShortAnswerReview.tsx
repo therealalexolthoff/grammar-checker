@@ -14,13 +14,10 @@ const MARKS: Mark[] = ["correct", "partial", "incorrect"];
 
 // The API stores computed offsets on each annotation but doesn't accept
 // them back; strip them before sending.
+export const withoutOffsets = (annotations: Annotation[]) => annotations.map(({ start: _s, end: _e, ...a }) => a);
+
 function forSending(evaluation: Evaluation): Evaluation {
-  return {
-    items: evaluation.items.map((item) => ({
-      ...item,
-      annotations: item.annotations.map(({ start: _s, end: _e, ...a }) => a),
-    })),
-  };
+  return { items: evaluation.items.map((item) => ({ ...item, annotations: withoutOffsets(item.annotations) })) };
 }
 
 export default function ShortAnswerReview({
@@ -32,7 +29,7 @@ export default function ShortAnswerReview({
 }) {
   const [scrubbed, setScrubbed] = useState(exercise.scrubbed_answers);
   const [scrubDirty, setScrubDirty] = useState(false);
-  const [draft, setDraft] = useState<Evaluation | null>(exercise.evaluation);
+  const [draft, setDraft] = useState<Evaluation | null>(exercise.evaluation as Evaluation | null);
   const [evalDirty, setEvalDirty] = useState(false);
   const [note, setNote] = useState("");
   const [codes, setCodes] = useState<Code[]>([]);
@@ -52,7 +49,7 @@ export default function ShortAnswerReview({
   function load(next: TeacherExercise) {
     setScrubbed(next.scrubbed_answers);
     setScrubDirty(false);
-    setDraft(next.evaluation);
+    setDraft(next.evaluation as Evaluation | null);
     setEvalDirty(false);
     onChange(next);
   }
@@ -96,7 +93,7 @@ export default function ShortAnswerReview({
 
       <ol className="items">
         {items.map((item) => {
-          const saved = exercise.evaluation?.items.find((r) => r.item_id === item.id);
+          const saved = (exercise.evaluation as Evaluation | null)?.items.find((r) => r.item_id === item.id);
           const edited = draft?.items.find((r) => r.item_id === item.id);
           return (
             <li key={item.id} className="item">
@@ -202,7 +199,7 @@ export default function ShortAnswerReview({
   );
 }
 
-function AnnotationsEditor({
+export function AnnotationsEditor({
   annotations,
   codes,
   disabled,

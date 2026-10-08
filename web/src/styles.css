@@ -71,7 +71,7 @@ button.link { border: none; background: none; color: var(--accent); padding: 0.2
   padding: 1rem; background: var(--card); border-radius: 10px;
 }
 .badge { font-size: 0.85rem; color: var(--muted); }
-.badge.released { color: var(--right); font-weight: 600; }
+.badge.released, .badge.revision_open { color: var(--right); font-weight: 600; }
 
 /* Exercise items */
 .items { padding-left: 1.5rem; }
@@ -128,3 +128,20 @@ mark.span { background: #fde7c4; border-bottom: 2px solid #b26a00; padding: 0 0.
 table.annotations td { padding: 0.3rem; vertical-align: top; }
 table.annotations input, table.annotations select { margin-top: 0; }
 .narrow-input { width: 4.5rem; }
+
+.row .check { margin-top: 0; }
+
+/* Writing: word count (FR-12), photos, revision (FR-26) */
+.word-count { font-size: 0.9rem; color: var(--muted); }
+.word-count.outside { color: #8a5200; font-weight: 600; }
+.photos { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.photos figure { margin: 0; flex: 1 1 14rem; max-width: 100%; }
+.photos img { width: 100%; border: 1px solid var(--line); border-radius: 8px; display: block; }
+.photos figcaption { font-size: 0.85rem; color: var(--muted); }
+.span-button {
+  font: inherit; min-height: 2.5rem; padding: 0.1rem 0.35rem; margin: 0 0.1rem;
+  background: #fde7c4; border: none; border-bottom: 2px solid #b26a00; border-radius: 3px;
+}
+.span-button.changed { background: #dcefe1; border-bottom-color: var(--right); }
+.span-button.selected { outline: 3px solid var(--accent); }
+.span-editor { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem; margin: 0.5rem 0; }

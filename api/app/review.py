@@ -1,11 +1,14 @@
-"""Scrubbing and evaluation of short answers (docs/BUILD_PLAN.md Phase 5).
+"""Scrubbing and evaluation of short answers (docs/BUILD_PLAN.md Phase 5)
+and writing responses (Phase 6).
 
-After a grammar exercise with short answers is submitted, the teacher:
-1. edits the scrubbed copy of each short answer (removing personal
-   details) - the original answers are never changed or sent anywhere;
+After a grammar exercise with short answers, or a writing exercise, is
+submitted, the teacher:
+1. edits the scrubbed copy of each short answer or of the writing
+   response (removing personal details) - the original answers are never
+   changed or sent anywhere;
 2. sends the scrubbed copy for evaluation (or regenerates, with a note);
 3. reviews the AI draft: changes marks, feedback, and annotations (add,
-   remove, recode);
+   remove, recode) - for writing, the annotations and the overall comment;
 4. approves it, then releases it (the release endpoint is in exercises.py).
 
 States (docs/ARCHITECTURE.md section 5):
@@ -26,8 +29,11 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from shared.schemas import (
     PROMPT_VERSION,
+    Annotation,
     EvaluateExerciseRequest,
     EvaluateExerciseResult,
+    EvaluateWritingRequest,
+    EvaluateWritingResult,
     ScrubbedShortAnswer,
     ShortAnswerItem,
 )
@@ -37,7 +43,7 @@ from . import jobs
 from .audit import record as record_audit
 from .auth import CurrentUser, require_teacher
 from .exercises import _draft, _load_exercise, _load_submission, _submission_ref, _teacher_view, call_ai
-from .models import EvaluateBody, ScrubbedBody
+from .models import WRITING_KEY, EvaluateBody, ScrubbedBody
 
 router = APIRouter(tags=["review"])
 
@@ -57,6 +63,14 @@ def _short_answer_items(exercise: dict) -> list[ShortAnswerItem]:
     return [item for item in _draft(exercise).items if isinstance(item, ShortAnswerItem)]
 
 
+def _scrubbed_keys(exercise: dict) -> list[str]:
+    """Which texts the scrubbed copy has: one per short answer, or the
+    single writing response."""
+    if exercise["kind"] == "writing":
+        return [WRITING_KEY]
+    return [item.id for item in _short_answer_items(exercise)]
+
+
 def _load_for_review(exercise_id: str, allowed_states: tuple[str, ...]) -> tuple[dict, dict]:
     exercise = _load_exercise(exercise_id)
     submission = _load_submission(exercise_id)
@@ -65,20 +79,34 @@ def _load_for_review(exercise_id: str, allowed_states: tuple[str, ...]) -> tuple
     return exercise, submission
 
 
-def _with_offsets(result: EvaluateExerciseResult, scrubbed: dict[str, str]) -> dict:
+def _annotations_with_offsets(annotations: list[Annotation], text: str) -> list[dict]:
+    spans = resolve_annotations(annotations, text)
+    return [
+        {**a.model_dump(mode="json"), "start": start, "end": end}
+        for a, (start, end) in zip(annotations, spans, strict=True)
+    ]
+
+
+def _with_offsets(result: EvaluateExerciseResult | EvaluateWritingResult, scrubbed: dict[str, str]) -> dict:
     """The evaluation as stored: each annotation gains the character
     offsets the API computed against the exact scrubbed text
     (docs/HARNESS_SPEC.md section 3). Raises SpanError if a span isn't in
     the text or two spans overlap."""
+    if isinstance(result, EvaluateWritingResult):
+        return {
+            "annotations": _annotations_with_offsets(result.annotations, scrubbed[WRITING_KEY]),
+            "comment": result.comment,
+        }
     items = []
     for item in result.items:
-        spans = resolve_annotations(item.annotations, scrubbed[item.item_id])
-        annotations = [
-            {**a.model_dump(mode="json"), "start": start, "end": end}
-            for a, (start, end) in zip(item.annotations, spans, strict=True)
-        ]
+        annotations = _annotations_with_offsets(item.annotations, scrubbed[item.item_id])
         items.append({"item_id": item.item_id, "mark": item.mark, "feedback": item.feedback, "annotations": annotations})
     return {"items": items}
+
+
+def _marks(evaluation: dict) -> list[str]:
+    """The short-answer marks, in order (writing has none)."""
+    return [item["mark"] for item in evaluation.get("items", [])]
 
 
 @router.put("/exercises/{exercise_id}/scrubbed")
@@ -87,7 +115,7 @@ def save_scrubbed(exercise_id: str, body: ScrubbedBody, user: CurrentUser = Depe
     exists and the text changed, the evaluation is discarded - its spans
     pointed into the old text."""
     exercise, submission = _load_for_review(exercise_id, _REVIEW_STATES)
-    expected = sorted(item.id for item in _short_answer_items(exercise))
+    expected = sorted(_scrubbed_keys(exercise))
     if sorted(body.scrubbed_answers) != expected:
         raise HTTPException(status_code=422, detail=f"expected scrubbed text for items {expected}")
 
@@ -119,19 +147,27 @@ def evaluate(exercise_id: str, body: EvaluateBody, user: CurrentUser = Depends(r
     previous_state = submission["state_before_evaluating"] if stale else state
 
     scrubbed = submission["scrubbed_answers"]
-    items = _short_answer_items(exercise)
-    req = EvaluateExerciseRequest(
-        student_id=exercise["student_id"],
-        request_id=str(uuid.uuid4()),
-        prompt_version=PROMPT_VERSION,
-        items=[ScrubbedShortAnswer(item_id=item.id, prompt=item.prompt, response=scrubbed[item.id]) for item in items],
-        regenerate_note=body.note or None,
-    )
+    request_fields = {
+        "student_id": exercise["student_id"],
+        "request_id": str(uuid.uuid4()),
+        "prompt_version": PROMPT_VERSION,
+        "regenerate_note": body.note or None,
+    }
+    if exercise["kind"] == "writing":
+        operation = "evaluate_writing"
+        req = EvaluateWritingRequest(**request_fields, prompt=exercise["prompt"], text=scrubbed[WRITING_KEY])
+    else:
+        operation = "evaluate_exercise"
+        items = _short_answer_items(exercise)
+        req = EvaluateExerciseRequest(
+            **request_fields,
+            items=[ScrubbedShortAnswer(item_id=item.id, prompt=item.prompt, response=scrubbed[item.id]) for item in items],
+        )
 
     ref = _submission_ref(exercise_id)
     ref.update({"state": "evaluating", "evaluating_since": _now(), "state_before_evaluating": previous_state})
     try:
-        result, job_id = call_ai("evaluate_exercise", req)
+        result, job_id = call_ai(operation, req)
         evaluation = _with_offsets(result, scrubbed)  # the API re-validated these spans already
     except Exception:
         ref.update({"state": previous_state})
@@ -155,27 +191,32 @@ def evaluate(exercise_id: str, body: EvaluateBody, user: CurrentUser = Depends(r
 
 @router.put("/exercises/{exercise_id}/evaluation")
 def edit_evaluation(
-    exercise_id: str, body: EvaluateExerciseResult, user: CurrentUser = Depends(require_teacher)
+    exercise_id: str,
+    body: EvaluateExerciseResult | EvaluateWritingResult,
+    user: CurrentUser = Depends(require_teacher),
 ) -> dict:
     """The teacher's edits to the draft (FR-20): marks, feedback, and
-    annotations. Parsed with the same shared schema as the AI's output and
-    span-checked the same way, so an edit can't produce something the
-    student screen can't show. A changed mark is audit-logged as an
-    override (FR-5)."""
+    annotations - for writing, annotations and the overall comment. Parsed
+    with the same shared schema as the AI's output and span-checked the
+    same way, so an edit can't produce something the student screen can't
+    show. A changed mark is audit-logged as an override (FR-5)."""
     exercise, submission = _load_for_review(exercise_id, _EVALUATED_STATES)
-    scrubbed = submission["scrubbed_answers"]
-    check_item_ids([i.item_id for i in body.items], [item.id for item in _short_answer_items(exercise)])
+    if isinstance(body, EvaluateWritingResult) != (exercise["kind"] == "writing"):
+        raise HTTPException(status_code=422, detail=f"that isn't a {exercise['kind']} evaluation")
+    if isinstance(body, EvaluateExerciseResult):
+        check_item_ids([i.item_id for i in body.items], _scrubbed_keys(exercise))
     try:
-        evaluation = _with_offsets(body, scrubbed)
+        evaluation = _with_offsets(body, submission["scrubbed_answers"])
     except SpanError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    ai_marks = {i["item_id"]: i["mark"] for i in submission["evaluation_ai"]["items"]}
-    saved_marks = {i["item_id"]: i["mark"] for i in submission["evaluation"]["items"]}
-    for item in body.items:
-        # Logged once, when the mark first moves away from what is saved.
-        if item.mark != saved_marks[item.item_id] and item.mark != ai_marks[item.item_id]:
-            record_audit(user.uid, "override_mark", target=f"{exercise_id}/{item.item_id}")
+    if isinstance(body, EvaluateExerciseResult):
+        ai_marks = {i["item_id"]: i["mark"] for i in submission["evaluation_ai"]["items"]}
+        saved_marks = {i["item_id"]: i["mark"] for i in submission["evaluation"]["items"]}
+        for item in body.items:
+            # Logged once, when the mark first moves away from what is saved.
+            if item.mark != saved_marks[item.item_id] and item.mark != ai_marks[item.item_id]:
+                record_audit(user.uid, "override_mark", target=f"{exercise_id}/{item.item_id}")
 
     # Editing after approval means it needs approving again.
     _submission_ref(exercise_id).update({"evaluation": evaluation, "state": "draft_ready", "updated_at": _now()})
@@ -190,7 +231,7 @@ def approve(exercise_id: str, user: CurrentUser = Depends(require_teacher)) -> d
     final, ai = submission["evaluation"], submission["evaluation_ai"]
     if final == ai:
         action = "accepted"
-    elif [i["mark"] for i in final["items"]] != [i["mark"] for i in ai["items"]]:
+    elif _marks(final) != _marks(ai):
         action = "overridden"
     else:
         action = "edited"

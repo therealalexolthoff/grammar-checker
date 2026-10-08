@@ -18,7 +18,7 @@ from shared.schemas import (
     TranscribeRequest,
     TranscribeResponse,
 )
-from shared.validation import check_item_ids, resolve_annotations
+from shared.validation import check_item_ids, check_page_numbers, resolve_annotations
 
 from . import jobs, spend
 from .cost import estimate_cost
@@ -43,8 +43,9 @@ class HarnessValidationFailed(Exception):
 
 
 def _validate_semantics(operation: str, req, result) -> None:
-    """The one semantic check worth re-running independently of the
-    harness - annotation spans (docs/HARNESS_SPEC.md section 3). Every
+    """The semantic checks worth re-running independently of the harness:
+    annotation spans (docs/HARNESS_SPEC.md section 3), and that each item
+    or page sent came back exactly once, in order. Every
     other rule (unique ids, permutations, codes, ...) is already enforced
     by the shared Pydantic schema itself, which both sides parse with.
     """
@@ -54,6 +55,8 @@ def _validate_semantics(operation: str, req, result) -> None:
             resolve_annotations(item.annotations, item_req.response)
     elif operation == "evaluate_writing":
         resolve_annotations(result.annotations, req.text)
+    elif operation == "transcribe":
+        check_page_numbers([p.page for p in result.pages], len(req.pages))
 
 
 def call_harness(operation: str, req) -> tuple[object, str]:

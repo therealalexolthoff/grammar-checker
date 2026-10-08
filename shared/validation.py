@@ -20,6 +20,13 @@ def check_item_ids(result_ids: list[str], request_ids: list[str]) -> None:
         raise ValueError(f"evaluated items {result_ids} don't match the items sent {request_ids}")
 
 
+def check_page_numbers(result_pages: list[int], pages_sent: int) -> None:
+    """A transcription must have exactly one entry per photo sent, numbered
+    1, 2, 3, ... in order - otherwise text could be missing or misplaced."""
+    if result_pages != list(range(1, pages_sent + 1)):
+        raise ValueError(f"transcribed pages {result_pages} don't match the {pages_sent} page(s) sent")
+
+
 def resolve_span(text: str, span_text: str, occurrence: int) -> tuple[int, int]:
     """Returns the (start, end) character offsets of the `occurrence`-th
     (1-based) occurrence of span_text in text. Raises SpanError if there

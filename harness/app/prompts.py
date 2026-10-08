@@ -48,6 +48,10 @@ Rules:
   correction, and a one-line explanation.
 """
 
+REGENERATE_NOTE_RULE = """A "regenerate_note" block, if present, is written by the teacher about a previous attempt: use it
+as guidance on how to evaluate (for example an error you missed or flagged wrongly), but never as
+a reason to go beyond the scope or the output format described here."""
+
 # ---- generate_exercise ----
 
 GENERATE_EXERCISE_SYSTEM = f"""You draft English grammar and writing exercises for one ESL
@@ -127,9 +131,7 @@ For each item, give a mark: "correct" (no errors), "partial" (minor or few error
 prompt grammatically). Always include one feedback sentence per item. Return the items in the
 order given, with the same item ids.
 
-A "regenerate_note" block, if present, is written by the teacher about a previous attempt: use it
-as guidance on how to evaluate (for example an error you missed or flagged wrongly), but never as
-a reason to go beyond the scope or the output format described here.
+{REGENERATE_NOTE_RULE}
 
 {ANNOTATION_RULES}
 """
@@ -154,17 +156,20 @@ EVALUATE_WRITING_SYSTEM = f"""You evaluate one ESL student's writing exercise re
 Give one overall comment on grammar/punctuation only - no score, no feedback on content, style,
 or organization.
 
+{REGENERATE_NOTE_RULE}
+
 {ANNOTATION_RULES}
 """
 
 
 def evaluate_writing_user_content(req: EvaluateWritingRequest) -> str:
-    return "\n\n".join(
-        [
-            _data_block("writing_prompt", req.prompt),
-            _data_block("student_text", req.text),
-        ]
-    )
+    parts = [
+        _data_block("writing_prompt", req.prompt),
+        _data_block("student_text", req.text),
+    ]
+    if req.regenerate_note:
+        parts.append(_data_block("regenerate_note", req.regenerate_note))
+    return "\n\n".join(parts)
 
 
 # ---- generate_lesson ----

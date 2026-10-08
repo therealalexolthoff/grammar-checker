@@ -59,7 +59,8 @@ gcloud firestore backups schedules create \
 echo "== Private photo bucket =="
 gcloud storage buckets create "gs://${BUCKET_NAME}" \
   --location="${REGION}" \
-  --uniform-bucket-level-access
+  --uniform-bucket-level-access \
+  --public-access-prevention
 
 echo "== Service accounts =="
 gcloud iam service-accounts create esl-api-sa --display-name="ESL Tool API service account"
@@ -106,7 +107,7 @@ gcloud run deploy esl-api \
   --region="${REGION}" \
   --service-account="${API_SA}" \
   --allow-unauthenticated \
-  --set-env-vars="HARNESS_URL=${HARNESS_URL},ENVIRONMENT=prod,FIREBASE_API_KEY=${FIREBASE_API_KEY},FIREBASE_AUTH_DOMAIN=${PROJECT_ID}.firebaseapp.com"
+  --set-env-vars="HARNESS_URL=${HARNESS_URL},ENVIRONMENT=prod,FIREBASE_API_KEY=${FIREBASE_API_KEY},FIREBASE_AUTH_DOMAIN=${PROJECT_ID}.firebaseapp.com,PHOTO_BUCKET=${BUCKET_NAME}"
 
 echo "== Let the API invoke the harness privately =="
 gcloud run services add-iam-policy-binding esl-harness \

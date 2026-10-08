@@ -26,20 +26,41 @@ export type Annotation = {
 
 export type EvaluatedItem = { item_id: string; mark: Mark; feedback: string; annotations: Annotation[] };
 export type Evaluation = { items: EvaluatedItem[] };
+export type WritingEvaluation = { annotations: Annotation[]; comment: string };
+
+export type Outcome = "fixed" | "unfixed" | "changed_wrongly";
+// The student's revision as the teacher sees it. Keys are span indexes:
+// positions in the evaluation's annotation list.
+export type Revision = {
+  edits: Record<string, string>;
+  submitted_at: string | null;
+  outcomes: Record<string, Outcome>;
+  revised_text: string;
+  changed: { index: string; start: number; end: number }[];
+};
 
 export type TeacherExercise = {
   exercise_id: string;
   student_id: string;
+  kind: "grammar" | "writing";
   status: "draft" | "assigned";
   title: string;
-  items: TeacherItem[];
+  items: TeacherItem[]; // grammar only
   teacher_request: string;
   state: string;
   answers: Answers;
   grades: Record<string, boolean>;
   scrubbed_answers: Record<string, string>;
-  evaluation: Evaluation | null;
+  evaluation: Evaluation | WritingEvaluation | null;
   evaluation_valid: boolean;
+  // Writing only:
+  prompt?: string;
+  min_words?: number | null;
+  max_words?: number | null;
+  photo_count?: number;
+  transcription?: string | null;
+  final_source?: "typed" | "photo" | null;
+  revision?: Revision | null;
 };
 
 export type ExerciseSummary = { exercise_id: string; title: string; status?: string; state: string };
@@ -60,13 +81,26 @@ export type StudentItem = {
   mark?: Mark;
   feedback?: string;
   answer_text?: string;
-  spans?: { start: number; end: number; code: string; meaning: string }[];
+  spans?: StudentSpan[];
 };
+
+export type StudentSpan = { start: number; end: number; code: string; meaning: string };
 
 export type StudentExercise = {
   exercise_id: string;
+  kind: "grammar" | "writing";
   title: string;
   state: string;
   answers: Answers;
-  items: StudentItem[];
+  items: StudentItem[]; // grammar only
+  // Writing only:
+  prompt?: string;
+  min_words?: number;
+  max_words?: number;
+  // Writing, after release:
+  answer_text?: string;
+  spans?: StudentSpan[]; // in annotation order: revision edits refer to these positions
+  comment?: string;
+  revision_edits?: Record<string, string>;
+  revised_text?: string;
 };

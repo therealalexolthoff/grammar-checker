@@ -36,7 +36,7 @@ In scope: grammar and punctuation errors, including spelling and capitalization.
 - FR-9. Teacher can edit any item directly, regenerate with an optional note, or approve and assign. Drafts are editable; assigned exercises are frozen.
 - FR-10. Every exercise is assigned to exactly one student. No due dates. The teacher tells students in class; the student sees an "assigned to me" list.
 - FR-11. Fill-in-blank and reorder items are generated with accepted-answer lists, a one-line explanation, and a concept code. The teacher checks answers and concept codes at approval time (an explicit checklist on the approval screen).
-- FR-12. Writing exercises: one prompt, optional min/max word counts, set by the teacher. Typed response is always available to the student; the teacher may additionally upload photos of handwritten work (see 4.5).
+- FR-12. Writing exercises: one prompt, optional min/max word counts, set by the teacher. Typed response is always available to the student; the teacher may additionally upload photos of handwritten work (see 4.5). **Teacher decision (2026-10-08):** word limits are advisory - the student sees a live word count and a gentle reminder when outside the limits, but can still submit.
 
 ### 4.3 Doing an exercise (student, phone-first)
 - FR-13. Student sees assigned work and opens it. Answers autosave (debounced) and resume after app switching or signal loss.
@@ -55,13 +55,13 @@ In scope: grammar and punctuation errors, including spelling and capitalization.
 - FR-22. Students see their history of released work and lessons.
 
 ### 4.5 Handwritten writing responses (teacher-uploaded)
-- FR-23. For a writing exercise, the teacher can upload multiple photos in page order for a student. Uploads are for writing exercises only. EXIF/metadata is stripped.
+- FR-23. For a writing exercise, the teacher can upload multiple photos in page order for a student. Uploads are for writing exercises only. EXIF/metadata is stripped. **Teacher decisions (2026-10-08):** photos can be uploaded any time before evaluation, whether or not the student typed anything; starting transcription locks the student's typed answer as if submitted. The teacher's browser re-draws each photo as a JPEG (at most 2000 px on the long side; this drops metadata and fixes rotation), and the API strips any remaining metadata segments again before storing - no image library needed.
 - FR-24. The harness transcribes photos verbatim (no correction, `[?]` for illegible words). Teacher sees a side-by-side screen (photos left, editable text right) and corrects the transcription. One response per exercise: the teacher designates which source (typed or transcription) is final.
 - FR-25. The transcription then goes through the same scrub, evaluation, and release flow. Photos are visible to the teacher only, retained until the student is deleted, and are never shown to students. Students are told to write only their agreed first name on handwritten work.
 
 ### 4.6 Revision (writing exercises only)
 - FR-26. After release, the student sees their text with coded spans and can tap a flagged span to edit only that span. One round; submit locks it. Grammar short answers are not revisable in v1.
-- FR-27. Originals, annotations, and revisions are stored separately. The teacher reads revisions side by side with changed spans highlighted and marks each attempted span `fixed`, `unfixed`, or `changed_wrongly`. Revisions are not sent to the harness in v1.
+- FR-27. Originals, annotations, and revisions are stored separately. The teacher reads revisions side by side with changed spans highlighted and marks each attempted span `fixed`, `unfixed`, or `changed_wrongly`. **Teacher decision (2026-10-08):** only spans the student actually changed get an outcome; untouched spans get none. Like short answers, the student sees and revises the scrubbed (evaluated) text. Revisions are not sent to the harness in v1.
 
 ### 4.7 Writing lessons
 - FR-28. Teacher triggers a lesson by describing it and pressing Generate. The harness drafts 200 to 400 words: explanation plus a few practice examples. Examples are read-only (not interactive), with answers shown.

@@ -8,6 +8,8 @@ export function stateLabel(state: string): string {
   if (state === "assigned") return "New";
   if (state === "in_progress") return "In progress";
   if (state === "released") return "Results ready";
+  if (state === "revision_open") return "Results ready – you can make corrections";
+  if (state === "revision_submitted") return "Corrections sent";
   return "Submitted – waiting for your teacher";
 }
 

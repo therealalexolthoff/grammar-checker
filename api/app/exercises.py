@@ -1,4 +1,5 @@
-"""Grammar exercises, end to end (docs/BUILD_PLAN.md Phase 4).
+"""Exercises, end to end: grammar (docs/BUILD_PLAN.md Phase 4) and
+writing (Phase 6).
 
 Teacher: generate a draft, edit it, regenerate with a note, assign it
 (after the approval checklist), release results, reopen a submission.
@@ -11,19 +12,22 @@ Firestore layout (docs/ARCHITECTURE.md section 4):
                     Same id as its exercise - every exercise belongs to
                     exactly one student, so there is one submission each.
 
-Submission states (docs/ARCHITECTURE.md section 5; the writing-only
-states come in Phase 6):
+Submission states (docs/ARCHITECTURE.md section 5):
     assigned -> in_progress -> ready_to_release -> released
                              \\-> scrub_review -> evaluating -> draft_ready
-                                  -> ready_to_release   (has short answers;
-                                                          see review.py)
+                                  -> ready_to_release   (has short answers,
+                                                          or writing; see
+                                                          review.py)
+Writing exercises also have the handwriting and revision states - see
+writing.py:
+    ... -> transcribing -> transcript_review -> scrub_review
+    ready_to_release -> revision_open -> revision_submitted
 
 A submission's "answers" are the student's original answers and are never
 changed after submit. Short answers also get a separate "scrubbed_answers"
 copy, which the teacher edits and which is the only student text ever sent
-to the harness (docs/REQUIREMENTS.md FR-18).
-
-Writing exercises come in Phase 6; only kind "grammar" is accepted here.
+to the harness (docs/REQUIREMENTS.md FR-18). A writing response is stored
+the same way, as the single answer WRITING_KEY.
 """
 
 import uuid
@@ -40,6 +44,7 @@ from shared.schemas import (
     GrammarExerciseDraft,
     ReorderItem,
     ShortAnswerItem,
+    WritingExerciseDraft,
 )
 
 from shared.taxonomy import CODE_DESCRIPTIONS, ErrorCode
@@ -49,15 +54,18 @@ from .auth import CurrentUser, get_current_user, require_teacher
 from .firestore_client import get_db
 from .grading import grade_items
 from .harness_ops import HarnessValidationFailed, SpendCapReached, call_harness
+from .revision import revision_view
 from .models import (
     AnswersBody,
     AssignBody,
+    ExerciseDraft,
     GenerateExerciseBody,
     RegenerateBody,
     StudentExerciseSummary,
     StudentExerciseView,
     StudentItemView,
     SpanView,
+    WRITING_KEY,
 )
 
 router = APIRouter(tags=["exercises"])
@@ -66,8 +74,10 @@ router = APIRouter(tags=["exercises"])
 _OPEN_STATES = ("assigned", "in_progress")
 # States the teacher may reopen from. Not "released": once the student has
 # seen results, reopening would let them re-answer with the key in view.
-# Not "evaluating": an AI call is in progress.
-_REOPENABLE_STATES = ("scrub_review", "draft_ready", "ready_to_release")
+# Not "evaluating" or "transcribing": an AI call is in progress.
+_REOPENABLE_STATES = ("transcript_review", "scrub_review", "draft_ready", "ready_to_release")
+# States in which the student sees results (the last two: writing only).
+RESULTS_STATES = ("released", "revision_open", "revision_submitted")
 
 
 def _now() -> datetime:
@@ -109,12 +119,20 @@ def _items_from_firestore(items: list[dict]) -> list[dict]:
     ]
 
 
+def _to_firestore(fields: dict) -> dict:
+    """Exercise fields in the form they're stored (see _items_to_firestore)."""
+    if "items" in fields:
+        return {**fields, "items": _items_to_firestore(fields["items"])}
+    return fields
+
+
 def _load_exercise(exercise_id: str) -> dict:
     doc = _exercise_ref(exercise_id).get()
     if not doc.exists:
         raise _not_found()
     exercise = doc.to_dict()
-    exercise["items"] = _items_from_firestore(exercise["items"])
+    if exercise["kind"] == "grammar":
+        exercise["items"] = _items_from_firestore(exercise["items"])
     return exercise
 
 
@@ -123,8 +141,9 @@ def _load_submission(exercise_id: str) -> dict | None:
     return doc.to_dict() if doc.exists else None
 
 
-def _update_open_submission(exercise_id: str, check, changes: dict) -> None:
-    """Applies `changes` to a submission the student can still edit.
+def update_open_submission(exercise_id: str, check, changes: dict, open_states=_OPEN_STATES) -> None:
+    """Applies `changes` to a submission the student can still edit (one
+    of `open_states`).
 
     Read, check and write would race otherwise: an autosave already on its
     way when the student taps Submit could read "in_progress", lose the
@@ -137,7 +156,7 @@ def _update_open_submission(exercise_id: str, check, changes: dict) -> None:
     ref = _submission_ref(exercise_id)
     for _ in range(3):
         snapshot = ref.get()
-        if not snapshot.exists or snapshot.get("state") not in _OPEN_STATES:
+        if not snapshot.exists or snapshot.get("state") not in open_states:
             raise HTTPException(status_code=409, detail="This exercise has already been submitted.")
         check()
         try:
@@ -148,12 +167,19 @@ def _update_open_submission(exercise_id: str, check, changes: dict) -> None:
     raise HTTPException(status_code=409, detail="Your answers could not be saved. Please try again.")
 
 
-def _draft(exercise: dict) -> GrammarExerciseDraft:
-    """Re-parses stored items into typed schema objects."""
+def _draft(exercise: dict) -> GrammarExerciseDraft | WritingExerciseDraft:
+    """Re-parses a stored exercise into its typed schema object."""
+    if exercise["kind"] == "writing":
+        return WritingExerciseDraft(
+            title=exercise["title"],
+            prompt=exercise["prompt"],
+            min_words=exercise["min_words"],
+            max_words=exercise["max_words"],
+        )
     return GrammarExerciseDraft(title=exercise["title"], items=exercise["items"])
 
 
-def _load_for_student(exercise_id: str, user: CurrentUser) -> dict:
+def load_for_student(exercise_id: str, user: CurrentUser) -> dict:
     """The student may only see their own exercises, and only once
     assigned. Anything else looks like "not found" so a student can't
     probe which exercise ids exist."""
@@ -176,18 +202,18 @@ def call_ai(operation: str, req) -> tuple[object, str]:
         ) from exc
 
 
-def _generate(student_id: str, description: str, note: str | None) -> GrammarExerciseDraft:
+def _generate(student_id: str, kind: str, description: str, note: str | None) -> GrammarExerciseDraft | WritingExerciseDraft:
     """One generate_exercise harness call."""
     req = GenerateExerciseRequest(
         student_id=student_id,
         request_id=str(uuid.uuid4()),
         prompt_version=PROMPT_VERSION,
-        kind="grammar",
+        kind=kind,
         description=description,
         regenerate_note=note or None,
     )
     result, _ = call_ai("generate_exercise", req)
-    if not isinstance(result, GrammarExerciseDraft):
+    if result.kind != kind:
         raise HTTPException(
             status_code=502, detail="The AI returned the wrong kind of exercise. Please try again."
         )
@@ -197,21 +223,77 @@ def _generate(student_id: str, description: str, note: str | None) -> GrammarExe
 def _teacher_view(exercise_id: str, exercise: dict) -> dict:
     """Everything, including answer keys and the student's answers."""
     submission = _load_submission(exercise_id) or {}
-    return {
+    view = {
         "exercise_id": exercise_id,
         "student_id": exercise["student_id"],
+        "kind": exercise["kind"],
         "status": exercise["status"],
         "title": exercise["title"],
-        "items": exercise["items"],
+        "items": exercise.get("items", []),
         "teacher_request": exercise["teacher_request"],
         "state": submission.get("state", "draft"),
         "answers": submission.get("answers", {}),
         "grades": submission.get("grades", {}),
-        # Short answers only (Phase 5): see review.py.
+        # Short answers and writing: see review.py.
         "scrubbed_answers": submission.get("scrubbed_answers", {}),
         "evaluation": submission.get("evaluation"),
         "evaluation_valid": submission.get("evaluation_valid", False),
     }
+    if exercise["kind"] == "writing":
+        # Handwriting and revision: see writing.py. Photos themselves come
+        # from GET /exercises/{id}/photos as short-lived links.
+        view.update(
+            {
+                "prompt": exercise["prompt"],
+                "min_words": exercise["min_words"],
+                "max_words": exercise["max_words"],
+                "photo_count": len(submission.get("photos", [])),
+                "transcription": submission.get("transcription"),
+                "final_source": submission.get("final_source"),
+                "revision": revision_view(submission),
+            }
+        )
+    return view
+
+
+def _student_spans(annotations: list[dict]) -> list[SpanView]:
+    """Error spans as a student may see them: position and code only,
+    never the correction or explanation (FR-21). Kept in annotation order,
+    which is how revision edits refer to them."""
+    return [
+        SpanView(start=a["start"], end=a["end"], code=a["code"], meaning=CODE_DESCRIPTIONS[ErrorCode(a["code"])])
+        for a in annotations
+    ]
+
+
+def _student_writing_view(exercise_id: str, exercise: dict, submission: dict) -> StudentExerciseView:
+    """A writing exercise for its student: the prompt and word limits, and
+    once released, their evaluated text with coded spans, the overall
+    comment (FR-21), and their revision (FR-26). Never the photos, the
+    transcription, corrections or explanations (FR-25)."""
+    state = submission.get("state", "assigned")
+    view = StudentExerciseView(
+        exercise_id=exercise_id,
+        kind="writing",
+        title=exercise["title"],
+        state=state,
+        answers=submission.get("answers", {}),
+        items=[],
+        prompt=exercise["prompt"],
+        min_words=exercise["min_words"],
+        max_words=exercise["max_words"],
+    )
+    if state in RESULTS_STATES:
+        evaluation = submission["evaluation"]
+        # The evaluated (scrubbed) text, which the spans point into.
+        view.answer_text = submission["scrubbed_answers"][WRITING_KEY]
+        view.spans = _student_spans(evaluation["annotations"])
+        view.comment = evaluation["comment"]
+        revision = revision_view(submission)
+        if revision is not None:
+            view.revision_edits = revision["edits"]
+            view.revised_text = revision["revised_text"]
+    return view
 
 
 def _student_item(item, released: bool, grades: dict, evaluation: dict | None, scrubbed: dict) -> StudentItemView:
@@ -235,12 +317,7 @@ def _student_item(item, released: bool, grades: dict, evaluation: dict | None, s
             view.mark = result["mark"]
             view.feedback = result["feedback"]
             view.answer_text = scrubbed.get(item.id, "")
-            view.spans = [
-                SpanView(
-                    start=a["start"], end=a["end"], code=a["code"], meaning=CODE_DESCRIPTIONS[ErrorCode(a["code"])]
-                )
-                for a in result["annotations"]
-            ]
+            view.spans = _student_spans(result["annotations"])
     elif released:
         view.correct = grades.get(item.id, False)
         view.explanation = item.explanation
@@ -252,8 +329,13 @@ def _student_item(item, released: bool, grades: dict, evaluation: dict | None, s
     return view
 
 
-def _check_answer_shapes(draft: GrammarExerciseDraft, answers: dict) -> None:
-    """Each answer must belong to a real item and have that item's shape."""
+def _check_answer_shapes(draft: GrammarExerciseDraft | WritingExerciseDraft, answers: dict) -> None:
+    """Each answer must belong to a real item and have that item's shape.
+    A writing exercise has one answer: the response text."""
+    if isinstance(draft, WritingExerciseDraft):
+        if set(answers) - {WRITING_KEY} or not isinstance(answers.get(WRITING_KEY, ""), str):
+            raise HTTPException(status_code=422, detail=f"a writing answer is just {{{WRITING_KEY!r}: text}}")
+        return
     items = {item.id: item for item in draft.items}
     for item_id, answer in answers.items():
         item = items.get(item_id)
@@ -287,20 +369,18 @@ def generate_exercise(body: GenerateExerciseBody, user: CurrentUser = Depends(re
 
     # Context bundle (profile, notes, recent titles) is assembled in
     # Phase 7; until then the harness gets the teacher's description only.
-    draft = _generate(body.student_id, body.description, note=None)
+    draft = _generate(body.student_id, body.kind, body.description, note=None)
 
     doc_ref = get_db().collection("exercises").document()
     exercise = {
         "student_id": body.student_id,
-        "kind": "grammar",
         "status": "draft",
-        "title": draft.title,
-        "items": draft.model_dump(mode="json")["items"],
+        **draft.model_dump(mode="json"),  # kind, title, and items or prompt
         "teacher_request": body.description,
         "generation_history": [],
         "created_at": _now(),
     }
-    doc_ref.set({**exercise, "items": _items_to_firestore(exercise["items"])})
+    doc_ref.set(_to_firestore(exercise))
     return _teacher_view(doc_ref.id, exercise)
 
 
@@ -322,20 +402,18 @@ def list_exercises(student_id: str, user: CurrentUser = Depends(require_teacher)
 
 
 @router.put("/exercises/{exercise_id}")
-def edit_exercise(
-    exercise_id: str, body: GrammarExerciseDraft, user: CurrentUser = Depends(require_teacher)
-) -> dict:
+def edit_exercise(exercise_id: str, body: ExerciseDraft, user: CurrentUser = Depends(require_teacher)) -> dict:
     """The teacher's direct edits (FR-9). The body is parsed with the same
     shared schema the harness output must pass, so an edit can't create
     an exercise the student screen or the grader can't handle."""
     exercise = _load_exercise(exercise_id)
     if exercise["status"] != "draft":
         raise HTTPException(status_code=409, detail="assigned exercises can't be edited")
-    exercise["title"] = body.title
-    exercise["items"] = body.model_dump(mode="json")["items"]
-    _exercise_ref(exercise_id).update(
-        {"title": exercise["title"], "items": _items_to_firestore(exercise["items"])}
-    )
+    if body.kind != exercise["kind"]:
+        raise HTTPException(status_code=422, detail=f"this is a {exercise['kind']} exercise")
+    fields = body.model_dump(mode="json")
+    exercise.update(fields)
+    _exercise_ref(exercise_id).update(_to_firestore(fields))
     return _teacher_view(exercise_id, exercise)
 
 
@@ -347,27 +425,14 @@ def regenerate_exercise(
     if exercise["status"] != "draft":
         raise HTTPException(status_code=409, detail="assigned exercises can't be regenerated")
 
-    draft = _generate(exercise["student_id"], exercise["teacher_request"], note=body.note)
+    draft = _generate(exercise["student_id"], exercise["kind"], exercise["teacher_request"], note=body.note)
 
     # Keep the version being replaced, with the note that replaced it.
-    history = exercise.get("generation_history", []) + [
-        {
-            "title": exercise["title"],
-            "items": _items_to_firestore(exercise["items"]),
-            "note": body.note,
-            "replaced_at": _now(),
-        }
-    ]
-    exercise.update(
-        {"title": draft.title, "items": draft.model_dump(mode="json")["items"], "generation_history": history}
-    )
-    _exercise_ref(exercise_id).update(
-        {
-            "title": exercise["title"],
-            "items": _items_to_firestore(exercise["items"]),
-            "generation_history": history,
-        }
-    )
+    replaced = _to_firestore(_draft(exercise).model_dump(mode="json"))
+    history = exercise.get("generation_history", []) + [{**replaced, "note": body.note, "replaced_at": _now()}]
+    fields = draft.model_dump(mode="json")
+    exercise.update({**fields, "generation_history": history})
+    _exercise_ref(exercise_id).update({**_to_firestore(fields), "generation_history": history})
     return _teacher_view(exercise_id, exercise)
 
 
@@ -400,7 +465,11 @@ def release_results(exercise_id: str, user: CurrentUser = Depends(require_teache
     submission = _load_submission(exercise_id)
     if submission is None or submission["state"] != "ready_to_release":
         raise HTTPException(status_code=409, detail="not ready to release")
-    _submission_ref(exercise_id).update({"state": "released", "released_at": _now()})
+    # Writing with flagged errors opens the student's one revision round
+    # straight away (FR-26). Nothing flagged means nothing to revise.
+    revisable = exercise["kind"] == "writing" and submission["evaluation"]["annotations"]
+    state = "revision_open" if revisable else "released"
+    _submission_ref(exercise_id).update({"state": state, "released_at": _now()})
     return _teacher_view(exercise_id, exercise)
 
 
@@ -413,11 +482,14 @@ def reopen_submission(exercise_id: str, user: CurrentUser = Depends(require_teac
         raise HTTPException(status_code=409, detail="only submitted, unreleased work can be reopened")
     # Answers are kept so the student continues where they left off. Grades,
     # the scrubbed copy and any evaluation are rebuilt after the next submit.
+    # Handwriting photos and their transcription are the teacher's work and
+    # are kept too; the final source is chosen again.
     _submission_ref(exercise_id).update(
         {
             "state": "in_progress",
             "grades": {},
             "scrubbed_answers": {},
+            "final_source": None,
             "evaluation": None,
             "evaluation_ai": None,
             "evaluation_valid": False,
@@ -457,8 +529,12 @@ def get_exercise(exercise_id: str, user: CurrentUser = Depends(get_current_user)
     if user.role == "teacher":
         return _teacher_view(exercise_id, _load_exercise(exercise_id))
 
-    exercise = _load_for_student(exercise_id, user)
+    exercise = load_for_student(exercise_id, user)
     submission = _load_submission(exercise_id) or {}
+    if exercise["kind"] == "writing":
+        view = _student_writing_view(exercise_id, exercise, submission)
+        return view.model_dump(mode="json", exclude_none=True)
+
     state = submission.get("state", "assigned")
     released = state == "released"
     draft = _draft(exercise)
@@ -485,8 +561,8 @@ def save_answers(exercise_id: str, body: AnswersBody, user: CurrentUser = Depend
     """Autosave (FR-13). Replaces the saved answers with the ones sent."""
     if user.role != "student":
         raise HTTPException(status_code=403, detail="students only")
-    exercise = _load_for_student(exercise_id, user)
-    _update_open_submission(
+    exercise = load_for_student(exercise_id, user)
+    update_open_submission(
         exercise_id,
         check=lambda: _check_answer_shapes(_draft(exercise), body.answers),
         changes={"answers": body.answers, "state": "in_progress", "updated_at": _now()},
@@ -500,10 +576,26 @@ def submit_answers(exercise_id: str, body: AnswersBody, user: CurrentUser = Depe
     typed after the last autosave is lost, then grades and locks."""
     if user.role != "student":
         raise HTTPException(status_code=403, detail="students only")
-    exercise = _load_for_student(exercise_id, user)
+    exercise = load_for_student(exercise_id, user)
     draft = _draft(exercise)
+    if isinstance(draft, WritingExerciseDraft):
+        update_open_submission(
+            exercise_id,
+            check=lambda: _check_answer_shapes(draft, body.answers),
+            changes={
+                "answers": body.answers,
+                # The teacher's editable copy starts as the original (FR-18).
+                "scrubbed_answers": {WRITING_KEY: body.answers.get(WRITING_KEY, "")},
+                "final_source": "typed",
+                "state": "scrub_review",
+                "submitted_at": _now(),
+                "updated_at": _now(),
+            },
+        )
+        return {"status": "submitted"}
+
     short_answer_ids = [item.id for item in draft.items if isinstance(item, ShortAnswerItem)]
-    _update_open_submission(
+    update_open_submission(
         exercise_id,
         check=lambda: _check_answer_shapes(draft, body.answers),
         changes={

@@ -1,22 +1,27 @@
 // One exercise, teacher side. Draft: edit, regenerate with a note, tick
 // the approval checklist, assign. Assigned: the student's answers and
-// grades, short-answer scrub and evaluation (ShortAnswerReview), release
-// results, reopen.
+// grades, short-answer scrub and evaluation (ShortAnswerReview) or the
+// whole writing pipeline (WritingReview), release results, reopen.
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Code, TeacherExercise, TeacherItem } from "../types";
 import ShortAnswerReview from "./ShortAnswerReview";
+import WritingReview from "./WritingReview";
 
 export function stateLabel(state: string): string {
   const labels: Record<string, string> = {
     draft: "Draft",
     assigned: "Assigned",
     in_progress: "In progress",
+    transcribing: "Transcribing photos",
+    transcript_review: "Awaiting transcription review",
     scrub_review: "Submitted – awaiting scrub",
     evaluating: "Evaluating",
     draft_ready: "Draft evaluation ready",
     ready_to_release: "Ready to release",
     released: "Released",
+    revision_open: "Released – revision open",
+    revision_submitted: "Revision submitted",
   };
   return labels[state] ?? state;
 }
@@ -35,7 +40,11 @@ export default function ExerciseScreen({ exerciseId, onBack }: { exerciseId: str
       {error && <p className="error">{error}</p>}
       {exercise &&
         (exercise.status === "draft" ? (
-          <Editor exercise={exercise} onChange={setExercise} />
+          exercise.kind === "writing" ? (
+            <WritingEditor exercise={exercise} onChange={setExercise} />
+          ) : (
+            <Editor exercise={exercise} onChange={setExercise} />
+          )
         ) : (
           <Review exercise={exercise} onChange={setExercise} />
         ))}
@@ -260,6 +269,102 @@ function ItemEditor({ item, codes, onEdit }: { item: EditItem; codes: Code[]; on
   );
 }
 
+// ---- writing draft: prompt and word limits ----
+
+function WritingEditor({ exercise, onChange }: { exercise: TeacherExercise; onChange: (e: TeacherExercise) => void }) {
+  const [title, setTitle] = useState(exercise.title);
+  const [prompt, setPrompt] = useState(exercise.prompt ?? "");
+  // Kept as text so the boxes can be empty (no limit).
+  const [minWords, setMinWords] = useState(String(exercise.min_words ?? ""));
+  const [maxWords, setMaxWords] = useState(String(exercise.max_words ?? ""));
+  const [dirty, setDirty] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+
+  function load(next: TeacherExercise) {
+    setTitle(next.title);
+    setPrompt(next.prompt ?? "");
+    setMinWords(String(next.min_words ?? ""));
+    setMaxWords(String(next.max_words ?? ""));
+    setDirty(false);
+    onChange(next);
+  }
+
+  async function run(label: string, call: () => Promise<TeacherExercise>) {
+    setBusy(label);
+    setError("");
+    try {
+      load(await call());
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setBusy("");
+  }
+
+  const changed = (set: (v: string) => void) => (e: { target: { value: string } }) => {
+    set(e.target.value);
+    setDirty(true);
+  };
+  const words = (v: string) => (v.trim() ? Number(v) : null);
+  const id = exercise.exercise_id;
+  const save = () =>
+    run("Saving…", () =>
+      api(`/exercises/${id}`, "PUT", {
+        kind: "writing",
+        title,
+        prompt,
+        min_words: words(minWords),
+        max_words: words(maxWords),
+      }),
+    );
+  const regenerate = () => run("Regenerating… (up to a minute)", () => api(`/exercises/${id}/regenerate`, "POST", { note }));
+  // No answer keys in a writing exercise, so nothing to tick.
+  const assign = () =>
+    run("Assigning…", () => api(`/exercises/${id}/assign`, "POST", { answers_and_concepts_checked: true }));
+
+  return (
+    <>
+      <p className="muted">Request: {exercise.teacher_request}</p>
+      <label>
+        Title
+        <input value={title} onChange={changed(setTitle)} />
+      </label>
+      <label>
+        Writing prompt (what the student sees)
+        <textarea rows={4} value={prompt} onChange={changed(setPrompt)} />
+      </label>
+      <div className="row">
+        <label>
+          Minimum words (optional)
+          <input type="number" min={1} className="narrow-input" value={minWords} onChange={changed(setMinWords)} />
+        </label>
+        <label>
+          Maximum words (optional)
+          <input type="number" min={1} className="narrow-input" value={maxWords} onChange={changed(setMaxWords)} />
+        </label>
+      </div>
+
+      {error && <p className="error pre">{error}</p>}
+      {busy && <p className="notice">{busy}</p>}
+      <div className="row">
+        <button onClick={save} disabled={!dirty || !!busy}>Save changes</button>
+        <button className="primary" onClick={assign} disabled={dirty || !!busy}>Assign to student</button>
+      </div>
+      {dirty && <p className="muted">Save your changes before assigning.</p>}
+
+      <div className="panel stack">
+        <label>
+          Regenerate with a note (optional)
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. make it about work" />
+        </label>
+        <button onClick={regenerate} disabled={!!busy}>Regenerate</button>
+        {dirty && <p className="muted">Regenerating replaces your unsaved edits.</p>}
+      </div>
+    </>
+  );
+}
+
 // ---- assigned: answers, grades, release, reopen ----
 
 function Review({ exercise, onChange }: { exercise: TeacherExercise; onChange: (e: TeacherExercise) => void }) {
@@ -286,22 +391,27 @@ function Review({ exercise, onChange }: { exercise: TeacherExercise; onChange: (
       <p>
         Stage: <strong>{stateLabel(exercise.state)}</strong>
       </p>
-      <ol className="items">
-        {listed.map((item) => (
-          <li key={item.id} className="item">
-            <TeacherItemResult item={item} answer={exercise.answers[item.id]} grade={submitted ? exercise.grades[item.id] : undefined} />
-          </li>
-        ))}
-      </ol>
-
-      {submitted && hasShortAnswers && <ShortAnswerReview exercise={exercise} onChange={onChange} />}
+      {exercise.kind === "writing" ? (
+        <WritingReview exercise={exercise} onChange={onChange} />
+      ) : (
+        <>
+          <ol className="items">
+            {listed.map((item) => (
+              <li key={item.id} className="item">
+                <TeacherItemResult item={item} answer={exercise.answers[item.id]} grade={submitted ? exercise.grades[item.id] : undefined} />
+              </li>
+            ))}
+          </ol>
+          {submitted && hasShortAnswers && <ShortAnswerReview exercise={exercise} onChange={onChange} />}
+        </>
+      )}
 
       {error && <p className="error">{error}</p>}
       <div className="row">
         {exercise.state === "ready_to_release" && (
           <button className="primary" onClick={() => act("release")}>Release results to student</button>
         )}
-        {["scrub_review", "draft_ready", "ready_to_release"].includes(exercise.state) &&
+        {["transcript_review", "scrub_review", "draft_ready", "ready_to_release"].includes(exercise.state) &&
           (confirmReopen ? (
             <>
               <span>Send this back to the student to keep working? (This is recorded in the audit log.)</span>

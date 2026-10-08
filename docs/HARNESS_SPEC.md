@@ -8,7 +8,7 @@ The harness is a stateless Python (FastAPI) Cloud Run service. It has **no** dat
 | `generate_exercise` | teacher description, kind (grammar/writing), context bundle, optional regeneration note | exercise draft (section 4) |
 | `transcribe` | photo pages in order | verbatim text per page |
 | `evaluate_exercise` | scrubbed short-answer responses with their prompts, optional regeneration note | per item (same ids, same order): mark, annotations, one feedback sentence |
-| `evaluate_writing` | scrubbed text and the writing prompt | annotations, one overall comment |
+| `evaluate_writing` | scrubbed text and the writing prompt, optional regeneration note | annotations, one overall comment |
 | `generate_lesson` | teacher description, context bundle (profile summary, notes, scrubbed approved excerpts) | lesson (section 6) |
 
 Evaluation is one call per submission (not per item). Every request carries: operation, opaque student ID, request ID, prompt version. Every response carries: result, token counts (in/out/cache), model, latency.
@@ -84,7 +84,7 @@ Marking guidance: `correct` = no errors; `partial` = minor or few errors; `incor
 200 to 400 words total; explanation plus a few practice examples, read-only. Targets the student's recurring codes per the context bundle; may draw on scrubbed approved excerpts and teacher notes. English only, plain advanced-learner register.
 
 ## 7. Transcription rules
-Copy text **exactly** as written. Do not correct spelling, grammar, punctuation, or capitalization. Mark illegible words as `[?]`. Preserve line breaks and paragraph breaks. Output page by page in order. Never infer missing text. (Language models tend to silently fix errors; the prompt must forbid this explicitly and the golden set includes a test for it.)
+Copy text **exactly** as written. Do not correct spelling, grammar, punctuation, or capitalization. Mark illegible words as `[?]`. Preserve line breaks and paragraph breaks. Output page by page in order. Never infer missing text. Validation: exactly one result per page sent, numbered 1, 2, 3, ... in order. (Language models tend to silently fix errors; the prompt must forbid this explicitly and the golden set includes a test for it.)
 
 ## 8. Prompt, safety, and model client
 - One versioned prompt template per operation, stored in the repo; the version is recorded on every job.

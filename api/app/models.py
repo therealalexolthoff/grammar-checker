@@ -1,8 +1,10 @@
 """Pydantic request/response schemas for the API."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
+
+from shared.schemas import GrammarExerciseDraft, WritingExerciseDraft
 
 
 class StudentCreateRequest(BaseModel):
@@ -29,9 +31,14 @@ class StudentPublic(BaseModel):
 # Generous limits that still stop runaway input from reaching Firestore or
 # the harness (the harness bills per token).
 _MAX_DESCRIPTION = 2000
-_MAX_ANSWER = 5000
+_MAX_ANSWER = 10_000  # a long writing response is ~1,500 words
+_MAX_SPAN_EDIT = 500
 
 AnswerText = Annotated[str, Field(max_length=_MAX_ANSWER)]
+
+# A writing response is kept like a one-item exercise: its answer, scrubbed
+# copy and so on are all stored under this key.
+WRITING_KEY = "text"
 # fill_blank: {blank id: text}; reorder: chunk indexes; short_answer: text.
 # See api/app/grading.py for what each shape means.
 Answer = dict[str, AnswerText] | list[int] | AnswerText
@@ -39,7 +46,12 @@ Answer = dict[str, AnswerText] | list[int] | AnswerText
 
 class GenerateExerciseBody(BaseModel):
     student_id: str
+    kind: Literal["grammar", "writing"] = "grammar"
     description: str = Field(min_length=1, max_length=_MAX_DESCRIPTION)
+
+
+# The teacher's edited draft: whichever kind the exercise is ("kind" decides).
+ExerciseDraft = Annotated[GrammarExerciseDraft | WritingExerciseDraft, Field(discriminator="kind")]
 
 
 class RegenerateBody(BaseModel):
@@ -101,10 +113,46 @@ class StudentItemView(BaseModel):
 
 class StudentExerciseView(BaseModel):
     exercise_id: str
+    kind: str = "grammar"
     title: str
     state: str
     answers: dict[str, Answer]
-    items: list[StudentItemView]
+    items: list[StudentItemView]  # grammar only
+    # Writing only:
+    prompt: str | None = None
+    min_words: int | None = None
+    max_words: int | None = None
+    # Writing, only after release:
+    answer_text: str | None = None  # the evaluated (scrubbed) text the spans point into
+    spans: list[SpanView] | None = None
+    comment: str | None = None
+    revision_edits: dict[str, str] | None = None  # {span index: the student's new words}
+    revised_text: str | None = None
+
+
+# ---- writing: handwriting and revision (Phase 6) ----
+
+
+class TranscriptionBody(BaseModel):
+    text: str = Field(max_length=_MAX_ANSWER)
+
+
+class FinalSourceBody(BaseModel):
+    # Which version of the response is evaluated (FR-24).
+    source: Literal["typed", "photo"]
+
+
+class RevisionBody(BaseModel):
+    # {span index (its position in the annotation list): the new words}
+    edits: dict[str, Annotated[str, Field(max_length=_MAX_SPAN_EDIT)]]
+
+
+Outcome = Literal["fixed", "unfixed", "changed_wrongly"]
+
+
+class OutcomesBody(BaseModel):
+    # {span index: outcome} for every span the student changed (FR-27)
+    outcomes: dict[str, Outcome]
 
 
 class StudentExerciseSummary(BaseModel):

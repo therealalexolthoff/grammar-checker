@@ -1,29 +1,30 @@
 // One exercise for the student: answer, autosave, submit; or, once
 // released, the results (correct/incorrect, right answer, explanation).
+// Writing: a response with a word count, then the coded results and the
+// one revision round (tap a flagged span, retype just those words).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api";
 import SpannedText from "../SpannedText";
-import type { Answer, Answers, StudentExercise, StudentItem } from "../types";
+import type { Answer, Answers, StudentExercise, StudentItem, StudentSpan } from "../types";
+import { wordCount } from "../words";
 import { stateLabel } from "./StudentApp";
 
 const AUTOSAVE_DELAY_MS = 1500;
 const RETRY_DELAY_MS = 5000;
+const RESULTS_STATES = ["released", "revision_open", "revision_submitted"];
 
 type SaveStatus = "saved" | "saving" | "unsaved" | "offline" | "failed";
 
 export default function DoExercise({ exerciseId, onBack }: { exerciseId: string; onBack: () => void }) {
   const [exercise, setExercise] = useState<StudentExercise | null>(null);
-  const [answers, setAnswers] = useState<Answers>({});
   const [loadError, setLoadError] = useState("");
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api<StudentExercise>(`/exercises/${exerciseId}`)
-      .then((ex) => {
-        setExercise(ex);
-        setAnswers(ex.answers);
-      })
+      .then(setExercise)
       .catch(() => setLoadError("Could not open this exercise. Go back and try again."));
   }, [exerciseId]);
+  useEffect(load, [load]);
 
   if (loadError) return <Shell onBack={onBack}><p className="error">{loadError}</p></Shell>;
   if (!exercise) return <Shell onBack={onBack}><p>Loading…</p></Shell>;
@@ -33,9 +34,13 @@ export default function DoExercise({ exerciseId, onBack }: { exerciseId: string;
     <Shell onBack={onBack}>
       <h1>{exercise.title}</h1>
       {open ? (
-        <AnswerForm exercise={exercise} answers={answers} setAnswers={setAnswers} onSubmitted={onBack} />
-      ) : exercise.state === "released" ? (
-        <Results exercise={exercise} />
+        <AnswerForm exercise={exercise} onSubmitted={onBack} />
+      ) : RESULTS_STATES.includes(exercise.state) ? (
+        exercise.kind === "writing" ? (
+          <WritingResults exercise={exercise} onRevised={load} />
+        ) : (
+          <Results exercise={exercise} />
+        )
       ) : (
         <p className="notice">{stateLabel(exercise.state)}. You'll see your results here once they're ready.</p>
       )}
@@ -52,23 +57,16 @@ function Shell({ onBack, children }: { onBack: () => void; children: React.React
   );
 }
 
-function AnswerForm({
-  exercise,
-  answers,
-  setAnswers,
-  onSubmitted,
-}: {
-  exercise: StudentExercise;
-  answers: Answers;
-  setAnswers: (a: Answers) => void;
-  onSubmitted: () => void;
-}) {
+// ---- autosave and submit, shared by answers and revisions ----
+
+// Keeps `value` saved to `path` (FR-13): a short pause after each change,
+// straight away when the phone is locked or the app switched, and retried
+// while there's no signal. The body is {[field]: value}.
+function useAutosave<T>(path: string, field: string, initial: T) {
+  const [value, setValue] = useState(initial);
   const [status, setStatus] = useState<SaveStatus>("saved");
-  const [confirming, setConfirming] = useState(false);
-  const [submitError, setSubmitError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [saveError, setSaveError] = useState("");
-  const latest = useRef(answers);
+  const latest = useRef(initial);
   // Bumped on every change, so a save that finishes after newer typing
   // doesn't claim everything is saved.
   const version = useRef(0);
@@ -79,7 +77,7 @@ function AnswerForm({
     const savingVersion = version.current;
     setStatus("saving");
     try {
-      await api(`/exercises/${exercise.exercise_id}/answers`, "PUT", { answers: latest.current });
+      await api(path, "PUT", { [field]: latest.current });
       if (version.current === savingVersion) setStatus("saved");
     } catch (err) {
       if (err instanceof ApiError && err.status < 500) {
@@ -87,24 +85,22 @@ function AnswerForm({
         setStatus("failed");
         setSaveError(err.message);
       } else {
-        // Lost signal: keep the answers on screen and keep retrying.
+        // Lost signal: keep the work on screen and keep retrying.
         setStatus("offline");
         timer.current = window.setTimeout(save, RETRY_DELAY_MS);
       }
     }
-  }, [exercise.exercise_id]);
+  }, [path, field]);
 
-  function update(itemId: string, answer: Answer) {
-    const next = { ...latest.current, [itemId]: answer };
+  function change(next: T) {
     latest.current = next;
     version.current += 1;
-    setAnswers(next);
+    setValue(next);
     setStatus("unsaved");
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(save, AUTOSAVE_DELAY_MS);
   }
 
-  // Save straight away when the student switches apps or locks the phone.
   useEffect(() => {
     const onHide = () => {
       if (document.visibilityState === "hidden" && status !== "saved") save();
@@ -115,50 +111,115 @@ function AnswerForm({
 
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
+  // Before submitting: no autosave may land after the submit.
+  const stop = () => window.clearTimeout(timer.current);
+
+  return { value, latest, change, stop, status, saveError };
+}
+
+function SaveStatusLine({ status, saveError }: { status: SaveStatus; saveError: string }) {
+  return (
+    <p className={`save-status ${status}`} aria-live="polite">
+      {status === "saved" && "All changes saved"}
+      {status === "saving" && "Saving…"}
+      {status === "unsaved" && "Saving soon…"}
+      {status === "offline" && "Not saved yet – no connection. We'll keep trying."}
+      {status === "failed" && `Not saved. ${saveError}`}
+    </p>
+  );
+}
+
+// Submit with a confirmation step (FR-15).
+function SubmitButton({ question, onSubmit }: { question: string; onSubmit: () => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
   async function submit() {
-    window.clearTimeout(timer.current);
     setSubmitting(true);
-    setSubmitError("");
+    setError("");
     try {
-      await api(`/exercises/${exercise.exercise_id}/submit`, "POST", { answers: latest.current });
-      onSubmitted();
+      await onSubmit();
     } catch (err) {
-      setSubmitError(`Not submitted. ${(err as Error).message}`);
+      setError(`Not submitted. ${(err as Error).message}`);
       setSubmitting(false);
     }
   }
 
+  if (!confirming) return <button className="primary big" onClick={() => setConfirming(true)}>Submit</button>;
+  return (
+    <div className="confirm">
+      <p><strong>Submit now?</strong> {question}</p>
+      <div className="row">
+        <button className="primary big" onClick={submit} disabled={submitting}>
+          {submitting ? "Submitting…" : "Yes, submit"}
+        </button>
+        <button className="big" onClick={() => setConfirming(false)} disabled={submitting}>Not yet</button>
+      </div>
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
+// ---- answering ----
+
+function AnswerForm({ exercise, onSubmitted }: { exercise: StudentExercise; onSubmitted: () => void }) {
+  const path = `/exercises/${exercise.exercise_id}`;
+  const answers = useAutosave<Answers>(`${path}/answers`, "answers", exercise.answers);
+  const update = (itemId: string, answer: Answer) => answers.change({ ...answers.latest.current, [itemId]: answer });
+
+  async function submit() {
+    answers.stop();
+    await api(`${path}/submit`, "POST", { answers: answers.latest.current });
+    onSubmitted();
+  }
+
   return (
     <>
-      <p className={`save-status ${status}`} aria-live="polite">
-        {status === "saved" && "All answers saved"}
-        {status === "saving" && "Saving…"}
-        {status === "unsaved" && "Saving soon…"}
-        {status === "offline" && "Not saved yet – no connection. We'll keep trying."}
-        {status === "failed" && `Not saved. ${saveError}`}
-      </p>
-      <ol className="items">
-        {exercise.items.map((item) => (
-          <li key={item.id} className="item">
-            <ItemInput item={item} answer={answers[item.id]} onChange={(a) => update(item.id, a)} />
-          </li>
-        ))}
-      </ol>
-      {!confirming ? (
-        <button className="primary big" onClick={() => setConfirming(true)}>Submit</button>
+      <SaveStatusLine status={answers.status} saveError={answers.saveError} />
+      {exercise.kind === "writing" ? (
+        <WritingInput exercise={exercise} text={(answers.value.text as string) ?? ""} onChange={(t) => update("text", t)} />
       ) : (
-        <div className="confirm">
-          <p><strong>Submit now?</strong> You can't change your answers after this.</p>
-          <div className="row">
-            <button className="primary big" onClick={submit} disabled={submitting}>
-              {submitting ? "Submitting…" : "Yes, submit"}
-            </button>
-            <button className="big" onClick={() => setConfirming(false)} disabled={submitting}>Not yet</button>
-          </div>
-          {submitError && <p className="error">{submitError}</p>}
-        </div>
+        <ol className="items">
+          {exercise.items.map((item) => (
+            <li key={item.id} className="item">
+              <ItemInput item={item} answer={answers.value[item.id]} onChange={(a) => update(item.id, a)} />
+            </li>
+          ))}
+        </ol>
       )}
+      <SubmitButton question="You can't change your answers after this." onSubmit={submit} />
     </>
+  );
+}
+
+function WritingInput({
+  exercise,
+  text,
+  onChange,
+}: {
+  exercise: StudentExercise;
+  text: string;
+  onChange: (text: string) => void;
+}) {
+  const count = wordCount(text);
+  const { min_words: min, max_words: max } = exercise;
+  // A gentle reminder only: the student can still submit (teacher decision).
+  let hint = "";
+  if (min && count < min) hint = `Try to write at least ${min} words.`;
+  else if (max && count > max) hint = `Try to keep it to ${max} words or fewer.`;
+  const limits = min && max ? `${min}–${max} words` : min ? `at least ${min} words` : max ? `up to ${max} words` : "";
+
+  return (
+    <div className="item">
+      <p className="instruction">{exercise.prompt}</p>
+      {limits && <p className="muted">Length: {limits}</p>}
+      <textarea rows={12} value={text} onChange={(e) => onChange(e.target.value)} aria-label="Your writing" />
+      <p className={`word-count${hint ? " outside" : ""}`} aria-live="polite">
+        {count} {count === 1 ? "word" : "words"}
+        {hint && ` – ${hint}`}
+      </p>
+    </div>
   );
 }
 
@@ -228,6 +289,8 @@ function ItemInput({ item, answer, onChange }: { item: StudentItem; answer?: Ans
   );
 }
 
+// ---- grammar results ----
+
 function Results({ exercise }: { exercise: StudentExercise }) {
   return (
     <ol className="items">
@@ -249,10 +312,23 @@ function resultClass(item: StudentItem): string {
 
 const MARK_TEXT = { correct: "✓ Correct", partial: "◐ Partly correct", incorrect: "✗ Not quite" };
 
+// What each code on the page means. Tap or hover a code to see it too.
+function Legend({ spans }: { spans: StudentSpan[] }) {
+  const meanings = [...new Map(spans.map((s) => [s.code, s.meaning])).entries()];
+  if (meanings.length === 0) return null;
+  return (
+    <ul className="legend">
+      {meanings.map(([code, meaning]) => (
+        <li key={code}><span className="code">{code}</span> {meaning}</li>
+      ))}
+    </ul>
+  );
+}
+
 function ResultItem({ item, answer }: { item: StudentItem; answer?: Answer }) {
   if (item.type === "short_answer") {
     // FR-21: the mark, the feedback sentence, and the answer with each
-    // error marked by its code. Tap or hover a code to see what it means.
+    // error marked by its code.
     if (!item.mark) {
       return (
         <>
@@ -262,19 +338,12 @@ function ResultItem({ item, answer }: { item: StudentItem; answer?: Answer }) {
       );
     }
     const spans = item.spans ?? [];
-    const meanings = [...new Map(spans.map((s) => [s.code, s.meaning])).entries()];
     return (
       <>
         <p className="verdict">{MARK_TEXT[item.mark]}</p>
         <p className="instruction">{item.prompt}</p>
         <SpannedText text={item.answer_text ?? ""} spans={spans} />
-        {meanings.length > 0 && (
-          <ul className="legend">
-            {meanings.map(([code, meaning]) => (
-              <li key={code}><span className="code">{code}</span> {meaning}</li>
-            ))}
-          </ul>
-        )}
+        <Legend spans={spans} />
         {item.feedback && <p className="explanation">{item.feedback}</p>}
       </>
     );
@@ -304,4 +373,108 @@ function ResultItem({ item, answer }: { item: StudentItem; answer?: Answer }) {
 function fillSentence(text: string, blankIds: string[], values: Record<string, string>): string {
   let i = 0;
   return text.replace(/_{3,}/g, () => `[${values[blankIds[i++]] || "…"}]`);
+}
+
+// ---- writing results and revision ----
+
+function WritingResults({ exercise, onRevised }: { exercise: StudentExercise; onRevised: () => void }) {
+  const spans = exercise.spans ?? [];
+  const text = exercise.answer_text ?? "";
+  return (
+    <>
+      <div className="item">
+        <p className="instruction">{exercise.prompt}</p>
+        {exercise.state === "revision_open" ? (
+          <Reviser exercise={exercise} onSubmitted={onRevised} />
+        ) : (
+          <SpannedText text={text} spans={spans} />
+        )}
+        <Legend spans={spans} />
+        {exercise.comment && <p className="explanation">{exercise.comment}</p>}
+      </div>
+      {exercise.state === "revision_submitted" && (
+        <div className="item">
+          <p className="verdict">Your revision (submitted)</p>
+          <p className="spanned">{exercise.revised_text}</p>
+        </div>
+      )}
+    </>
+  );
+}
+
+// The one revision round (FR-26): the text with each flagged span as a
+// button; tap one to retype just those words.
+function Reviser({ exercise, onSubmitted }: { exercise: StudentExercise; onSubmitted: () => void }) {
+  const path = `/exercises/${exercise.exercise_id}/revision`;
+  const edits = useAutosave<Record<string, string>>(path, "edits", exercise.revision_edits ?? {});
+  const [selected, setSelected] = useState<number | null>(null);
+  const text = exercise.answer_text ?? "";
+  const spans = exercise.spans ?? [];
+  const original = (i: number) => text.slice(spans[i].start, spans[i].end);
+  const current = (i: number) => edits.value[String(i)] ?? original(i);
+
+  function setEdit(i: number, words: string | null) {
+    const next = { ...edits.latest.current };
+    if (words === null) delete next[String(i)];
+    else next[String(i)] = words;
+    edits.change(next);
+  }
+
+  async function submit() {
+    edits.stop();
+    await api(`${path}/submit`, "POST", { edits: edits.latest.current });
+    onSubmitted();
+  }
+
+  // The text in pieces: plain text between spans, and a button per span
+  // (in reading order; `i` stays the span's position in the list).
+  const order = spans.map((_, i) => i).sort((a, b) => spans[a].start - spans[b].start);
+  const pieces: React.ReactNode[] = [];
+  let at = 0;
+  for (const i of order) {
+    pieces.push(text.slice(at, spans[i].start));
+    const changed = current(i) !== original(i);
+    pieces.push(
+      <button
+        key={i}
+        className={`span-button${changed ? " changed" : ""}${selected === i ? " selected" : ""}`}
+        onClick={() => setSelected(selected === i ? null : i)}
+      >
+        {current(i) || "…"}
+        <span className="code">{spans[i].code}</span>
+      </button>,
+    );
+    at = spans[i].end;
+  }
+  pieces.push(text.slice(at));
+
+  return (
+    <>
+      <p className="notice">
+        You can correct each marked part once. Tap a marked part, then type your correction.
+      </p>
+      <SaveStatusLine status={edits.status} saveError={edits.saveError} />
+      <p className="spanned">{pieces}</p>
+      {selected !== null && (
+        <div className="span-editor">
+          <label>
+            Change “{original(selected)}” ({spans[selected].code}: {spans[selected].meaning}) to:
+            <input
+              autoFocus
+              autoCapitalize="off"
+              value={current(selected)}
+              onChange={(e) => setEdit(selected, e.target.value)}
+            />
+          </label>
+          <div className="row">
+            <button onClick={() => setSelected(null)}>Done</button>
+            {current(selected) !== original(selected) && (
+              <button onClick={() => setEdit(selected, null)}>Undo my change</button>
+            )}
+          </div>
+        </div>
+      )}
+      <SubmitButton question="You can only revise once." onSubmit={submit} />
+    </>
+  );
 }

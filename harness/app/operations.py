@@ -34,7 +34,7 @@ from shared.schemas import (
     TranscribeResult,
     WritingExerciseDraft,
 )
-from shared.validation import check_item_ids, resolve_annotations
+from shared.validation import check_item_ids, check_page_numbers, resolve_annotations
 
 from . import mock, prompts
 from .claude_ops import call_claude
@@ -124,11 +124,15 @@ def transcribe(req: TranscribeRequest) -> TranscribeResponse:
         result = mock.mock_transcribe(req)
         return _mock_response(req, result, TranscribeResponse, start)
 
+    def check(result: TranscribeResult) -> None:
+        check_page_numbers([p.page for p in result.pages], len(req.pages))
+
     result, usage = _call_model(
         system=prompts.TRANSCRIBE_SYSTEM,
         user_content=prompts.transcribe_user_content(req),
         output_model=TranscribeResult,
         gemini_thinking="medium",  # accuracy matters more than speed here
+        validate=check,
     )
     return TranscribeResponse(result=result, **usage)
 
