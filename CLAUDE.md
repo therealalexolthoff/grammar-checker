@@ -7,7 +7,7 @@ Web app for one ESL teacher and their class. Read these before doing anything el
 - docs/BUILD_PLAN.md (phases; start at Phase 0)
 
 ## Stack
-Python 3.12 + FastAPI + Pydantic for the API and harness (two Cloud Run services), React frontend, Firestore, Cloud Storage, Identity Platform, Claude via Vertex AI. Google Cloud only, US East.
+Python 3.12 + FastAPI + Pydantic for the API and harness (two Cloud Run services), React frontend, Firestore, Cloud Storage, Identity Platform, Claude via Vertex AI, with Gemini 3.8 Flash (also Vertex) as an automatic fallback when Claude is unavailable. Google Cloud only, US East.
 
 ## Rules that must never be broken
 - The harness has no database or storage access and is never given usernames or unscrubbed student text. Photos go to `transcribe` only.
@@ -15,7 +15,7 @@ Python 3.12 + FastAPI + Pydantic for the API and harness (two Cloud Run services
 - Original student text is never modified; only the teacher-edited scrubbed copy is sent to the harness.
 - Never log student text or images.
 - Validate all harness output in the API; never show invalid output to the teacher.
-- Total cost must stay under $20/month; the Claude spend cap is enforced in the app.
+- Total cost must stay under $20/month; the AI spend cap (Claude and Gemini) is enforced in the app.
 - Scope is grammar, punctuation, spelling, capitalization only. No numeric scores anywhere.
 
 ## Working style

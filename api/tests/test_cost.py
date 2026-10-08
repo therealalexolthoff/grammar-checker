@@ -21,3 +21,9 @@ def test_estimate_cost_unknown_model_raises():
 
 def test_mock_model_is_free():
     assert estimate_cost("mock", 1000, 1000) == 0.0
+
+
+def test_gemini_fallback_is_priced():
+    # 1000 in at $1.50/M + 500 out at $7.50/M
+    cost = estimate_cost("gemini-3.8-flash", tokens_in=1000, tokens_out=500)
+    assert cost == pytest.approx(0.0015 + 0.00375)

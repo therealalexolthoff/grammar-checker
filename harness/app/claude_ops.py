@@ -33,6 +33,20 @@ def _attempt(client, system_blocks: list[dict], messages: list[dict], output_mod
     )
 
 
+def _tokens_in(usage) -> int:
+    """All input tokens. Claude reports cached and newly-cached prompt
+    tokens separately from input_tokens; api/app/cost.py expects tokens_in
+    to include them (it subtracts the cached ones to bill them at the
+    lower rate). Newly-cached tokens are billed here at the plain input
+    rate - slightly under Vertex's 1.25x cache-write rate, for a prompt
+    prefix of about a thousand tokens."""
+    return (
+        usage.input_tokens
+        + (getattr(usage, "cache_read_input_tokens", 0) or 0)
+        + (getattr(usage, "cache_creation_input_tokens", 0) or 0)
+    )
+
+
 def call_claude(
     *,
     system: str,
@@ -51,7 +65,7 @@ def call_claude(
     start = time.monotonic()
     response = _attempt(client, system_blocks, messages, output_model)
     result = response.parsed_output
-    tokens_in = response.usage.input_tokens
+    tokens_in = _tokens_in(response.usage)
     tokens_out = response.usage.output_tokens
     tokens_cached = getattr(response.usage, "cache_read_input_tokens", 0) or 0
 
@@ -71,7 +85,7 @@ def call_claude(
         )
         response = _attempt(client, system_blocks, messages, output_model)
         result = response.parsed_output
-        tokens_in += response.usage.input_tokens
+        tokens_in += _tokens_in(response.usage)
         tokens_out += response.usage.output_tokens
         tokens_cached += getattr(response.usage, "cache_read_input_tokens", 0) or 0
         if validate is not None:

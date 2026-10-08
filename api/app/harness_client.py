@@ -31,8 +31,11 @@ def call_harness_health() -> dict:
 
 
 def post_to_harness(path: str, body: dict) -> dict:
+    # 280s, just under Cloud Run's 300s request limit: the Gemini fallback
+    # on the US endpoint has taken 15-95s per call (2026-10-08), and a
+    # repair attempt can double that. See harness/app/gemini_ops.py.
     response = requests.post(
-        f"{settings.harness_url}/{path}", json=body, headers=_auth_headers(), timeout=60
+        f"{settings.harness_url}/{path}", json=body, headers=_auth_headers(), timeout=280
     )
     response.raise_for_status()
     return response.json()

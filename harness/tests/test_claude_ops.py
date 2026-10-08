@@ -48,7 +48,7 @@ def test_call_claude_happy_path_no_repair(monkeypatch):
 
     assert result.value == "ok"
     assert usage["model"] == "claude-sonnet-5"
-    assert usage["tokens_in"] == 100
+    assert usage["tokens_in"] == 120  # cached tokens included, as api/app/cost.py expects
     assert usage["tokens_out"] == 50
     assert usage["tokens_cached"] == 20
     assert len(fake.messages.calls) == 1  # no repair needed

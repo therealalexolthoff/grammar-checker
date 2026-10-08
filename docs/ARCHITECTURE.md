@@ -16,7 +16,7 @@ All business logic and authorization live in the API. The harness has **no** dat
 ## 2. Stack
 - Frontend: React SPA (responsive; student screens phone-first, teacher screens laptop-first). No native app, no PWA.
 - API and harness: Python 3.12, FastAPI, Pydantic v2. Two separate Cloud Run services.
-- Database: Firestore (native mode). Auth: Google Identity Platform. Files: Cloud Storage. Model access: Vertex AI (Claude), authenticated by service account (no API keys).
+- Database: Firestore (native mode). Auth: Google Identity Platform. Files: Cloud Storage. Model access: Vertex AI (Claude; Gemini 3.8 Flash as automatic fallback when Claude is unavailable — see HARNESS_SPEC section 8), authenticated by service account (no API keys).
 - Region: **confirmed** — `us-east4`/`us-east5` do not support current Claude models as fixed regional Vertex endpoints (only `us-east5` serves Sonnet 4.6 and earlier, now stale). Use the **`us` multi-region endpoint** instead: keeps data in the US, works with current models, 10% price premium over the region-free `global` endpoint.
 - Frontend hosting: serve the built SPA from the API service (simplest), or Firebase Hosting / Cloud Storage; agent picks the simplest that works.
 
