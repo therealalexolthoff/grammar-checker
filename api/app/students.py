@@ -17,8 +17,10 @@ from . import identity
 from .audit import record as record_audit
 from .auth import CurrentUser, require_self_or_teacher, require_teacher
 from .firestore_client import get_db
+from .profile import student_profile
 from .models import (
     DeleteStudentRequest,
+    NotesBody,
     ResetPasswordRequest,
     StudentCreateRequest,
     StudentPublic,
@@ -72,6 +74,28 @@ def get_student(
     if not doc.exists:
         raise _not_found()
     return StudentPublic(student_id=doc.id, username=doc.get("username"), active=doc.get("active"))
+
+
+@router.get("/{student_id}/profile")
+def get_profile(student_id: str, user: CurrentUser = Depends(require_teacher)) -> dict:
+    """The learner profile (FR-30) and the teacher's private notes (FR-31).
+    Teacher only: students never see either."""
+    doc = _student_doc(student_id).get()
+    if not doc.exists:
+        raise _not_found()
+    return {"profile": student_profile(student_id), "teacher_notes": doc.get("teacher_notes") or ""}
+
+
+@router.put("/{student_id}/notes")
+def save_notes(student_id: str, body: NotesBody, user: CurrentUser = Depends(require_teacher)) -> dict:
+    """The teacher's notes. They are sent to the AI provider with
+    generation requests (under the opaque id - see context.py), which the
+    notes screen warns about."""
+    doc_ref = _student_doc(student_id)
+    if not doc_ref.get().exists:
+        raise _not_found()
+    doc_ref.update({"teacher_notes": body.teacher_notes})
+    return {"status": "ok"}
 
 
 @router.post("/{student_id}/deactivate", response_model=StudentPublic)

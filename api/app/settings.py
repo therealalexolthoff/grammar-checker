@@ -17,6 +17,9 @@ class Settings(BaseModel):
     # A conservative fixed estimate used for the pre-call cap check, until
     # real per-operation token budgets exist (see module docstring).
     estimated_cost_per_call_usd: float = 0.05
+    # How many recent approved submissions the learner profile counts
+    # (docs/REQUIREMENTS.md FR-30).
+    profile_window: int = 5
 
 
 def get_settings() -> Settings:

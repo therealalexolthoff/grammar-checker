@@ -104,3 +104,41 @@ export type StudentExercise = {
   revision_edits?: Record<string, string>;
   revised_text?: string;
 };
+
+// ---- Phase 7: profile, lessons, overview ----
+
+export type ProfileRow = {
+  code: string;
+  meaning: string;
+  errors: number;
+  fixed: number;
+  unfixed: number;
+  changed_wrongly: number;
+};
+export type StudentProfile = {
+  profile: { window: number; submissions_counted: number; codes: ProfileRow[] };
+  teacher_notes: string;
+};
+
+export type LessonExample = { incorrect: string; correct: string; note: string };
+export type TeacherLesson = {
+  lesson_id: string;
+  student_id: string;
+  status: "draft" | "assigned";
+  request: string;
+  title: string;
+  explanation: string;
+  examples: LessonExample[];
+  word_count: number;
+  read_at: string | null;
+};
+export type LessonSummary = { lesson_id: string; title: string; status: string; read_at: string | null };
+export type StudentLesson = { lesson_id: string; title: string; explanation: string; examples: LessonExample[]; read: boolean };
+export type StudentLessonSummary = { lesson_id: string; title: string; read: boolean };
+
+export type OverviewRow = {
+  student_id: string;
+  username: string;
+  work: { exercise_id: string; title: string; state: string }[];
+  unread_lessons: { lesson_id: string; title: string }[];
+};

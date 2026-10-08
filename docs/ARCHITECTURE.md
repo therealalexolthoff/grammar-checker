@@ -34,7 +34,7 @@ All business logic and authorization live in the API. The harness has **no** dat
 ## 4. Data model (Firestore)
 | Collection | Contents |
 |---|---|
-| `students` | id (opaque), username, auth uid, active, teacher_notes, profile (counts, revision outcomes), created_at |
+| `students` | id (opaque), username, auth uid, active, teacher_notes, created_at. **Build decision (Phase 7):** the profile is not stored; it is computed on demand from approved submissions (`api/app/profile.py`), so it can never drift from its data. teacher_notes is one free-text field; the notes screen asks for newest notes at the top, and the context assembler keeps the first 1,500 characters. |
 | `exercises` | id, student_id, kind (`grammar`/`writing`), status (`draft`/`assigned`), title, items or prompt, teacher_request, generation_history (versions, notes), settings (min/max words) |
 | `submissions` | id, exercise_id, student_id, state, original_answers, scrubbed_answers, final_source (`typed`/`photo`), transcription, photos[] (path, page order, uploaded_at), marks, annotations (with computed offsets), feedback, release_at, revision {edits, submitted_at, outcomes}, evaluation_valid flag |
 | `lessons` | id, student_id, status (`draft`/`assigned`), request, passage, examples, read_at |

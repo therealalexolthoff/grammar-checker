@@ -127,6 +127,16 @@ def test_writing_regenerate_note_reaches_the_prompt():
     assert "regenerate_note" in prompts.EVALUATE_WRITING_SYSTEM
 
 
+def test_lesson_regenerate_note_reaches_the_prompt():
+    from harness.app import prompts
+    from shared.schemas import GenerateLessonRequest
+
+    req = GenerateLessonRequest(**REQUEST_BASE, description="articles", regenerate_note="simpler words")
+    content = prompts.generate_lesson_user_content(req)
+    assert '<data label="regenerate_note">' in content and "simpler words" in content
+    assert "regenerate_note" in prompts.GENERATE_LESSON_SYSTEM
+
+
 def test_transcription_must_cover_every_page_in_order():
     import pytest
 

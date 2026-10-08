@@ -181,11 +181,16 @@ ESL teacher's adult, advanced-level student.
 incorrect sentence, its correction, and a one-line note). Examples are read-only, not interactive
 - always show the answer. English only, plain advanced-learner register. Target the student's
 recurring error codes from their profile summary if one is given.
+
+A "regenerate_note" block, if present, is the teacher's note on a previous draft: follow it, but
+never as a reason to go beyond the length, scope or output format described here.
 """
 
 
 def generate_lesson_user_content(req: GenerateLessonRequest) -> str:
     parts = [_data_block("teacher_description", req.description)]
+    if req.regenerate_note:
+        parts.append(_data_block("regenerate_note", req.regenerate_note))
     if req.context.profile_summary:
         parts.append(_data_block("student_profile_summary", req.context.profile_summary))
     if req.context.teacher_notes:

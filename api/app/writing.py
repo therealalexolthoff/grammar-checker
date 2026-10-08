@@ -158,7 +158,10 @@ def transcribe(exercise_id: str, user: CurrentUser = Depends(require_teacher)) -
     # autosave on its way only writes if the state is still open (see
     # exercises.update_open_submission).
     ref = _submission_ref(exercise_id)
-    ref.update({"state": "transcribing", "transcribing_since": _now(), "state_before_transcribing": previous_state})
+    changes = {"state": "transcribing", "transcribing_since": _now(), "state_before_transcribing": previous_state}
+    if "submitted_at" not in submission:
+        changes["submitted_at"] = _now()  # handed in on paper: counts as submitted now
+    ref.update(changes)
     try:
         result, job_id = call_ai("transcribe", req)
     except Exception:

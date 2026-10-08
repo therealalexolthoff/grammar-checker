@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-from shared.schemas import GrammarExerciseDraft, WritingExerciseDraft
+from shared.schemas import GrammarExerciseDraft, LessonExample, WritingExerciseDraft
 
 
 class StudentCreateRequest(BaseModel):
@@ -159,3 +159,45 @@ class StudentExerciseSummary(BaseModel):
     exercise_id: str
     title: str
     state: str
+
+
+# ---- learner profile, notes, lessons (Phase 7) ----
+
+_MAX_NOTES = 5000
+_MAX_LESSON_TEXT = 5000
+
+
+class NotesBody(BaseModel):
+    teacher_notes: str = Field(max_length=_MAX_NOTES)
+
+
+class GenerateLessonBody(BaseModel):
+    student_id: str
+    description: str = Field(min_length=1, max_length=_MAX_DESCRIPTION)
+
+
+class LessonEditBody(BaseModel):
+    """The teacher's edits to a draft lesson. No word-count limit here:
+    200-400 words is what the AI must produce, but the teacher may trim
+    or add as they see fit."""
+
+    title: str = Field(min_length=1, max_length=200)
+    explanation: str = Field(min_length=1, max_length=_MAX_LESSON_TEXT)
+    examples: list[LessonExample] = Field(min_length=1, max_length=20)
+
+
+class StudentLessonView(BaseModel):
+    """A lesson as its student sees it. Serialized through this model, so
+    the teacher's request and notes can never reach a student."""
+
+    lesson_id: str
+    title: str
+    explanation: str
+    examples: list[LessonExample]
+    read: bool
+
+
+class StudentLessonSummary(BaseModel):
+    lesson_id: str
+    title: str
+    read: bool

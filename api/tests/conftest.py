@@ -12,6 +12,10 @@ def fake_db(monkeypatch):
     monkeypatch.setattr("api.app.spend.get_db", lambda: db)
     monkeypatch.setattr("api.app.settings.get_db", lambda: db)
     monkeypatch.setattr("api.app.exercises.get_db", lambda: db)
+    monkeypatch.setattr("api.app.profile.get_db", lambda: db)
+    monkeypatch.setattr("api.app.context.get_db", lambda: db)
+    monkeypatch.setattr("api.app.lessons.get_db", lambda: db)
+    monkeypatch.setattr("api.app.overview.get_db", lambda: db)
     return db
 
 

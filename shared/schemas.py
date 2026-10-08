@@ -19,7 +19,7 @@ from .taxonomy import ErrorCode
 # section 8). Lives here, not in the harness, because the API sends it on
 # every request - one definition means the two services can't disagree.
 # Bump it whenever any prompt in harness/app/prompts.py changes.
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 
 # How a fill_blank item's text marks each blank: three or more underscores.
 # The student screen puts one input box at each marker, in order.
@@ -219,6 +219,8 @@ class LessonDraft(StrictModel):
 class GenerateLessonRequest(BaseHarnessRequest):
     description: str
     context: ContextBundle = Field(default_factory=ContextBundle)
+    # The teacher's optional note when regenerating a lesson (FR-29).
+    regenerate_note: str | None = None
 
 
 # ---- response envelope ----

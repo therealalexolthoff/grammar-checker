@@ -51,6 +51,7 @@ from shared.taxonomy import CODE_DESCRIPTIONS, ErrorCode
 
 from .audit import record as record_audit
 from .auth import CurrentUser, get_current_user, require_teacher
+from .context import build_context
 from .firestore_client import get_db
 from .grading import grade_items
 from .harness_ops import HarnessValidationFailed, SpendCapReached, call_harness
@@ -210,6 +211,7 @@ def _generate(student_id: str, kind: str, description: str, note: str | None) ->
         prompt_version=PROMPT_VERSION,
         kind=kind,
         description=description,
+        context=build_context(student_id),
         regenerate_note=note or None,
     )
     result, _ = call_ai("generate_exercise", req)
@@ -367,8 +369,6 @@ def generate_exercise(body: GenerateExerciseBody, user: CurrentUser = Depends(re
     if not student.exists or not student.get("active"):
         raise HTTPException(status_code=404, detail="student not found or inactive")
 
-    # Context bundle (profile, notes, recent titles) is assembled in
-    # Phase 7; until then the harness gets the teacher's description only.
     draft = _generate(body.student_id, body.kind, body.description, note=None)
 
     doc_ref = get_db().collection("exercises").document()
