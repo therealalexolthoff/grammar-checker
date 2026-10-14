@@ -8,6 +8,7 @@ import LessonScreen from "./LessonScreen";
 import Overview from "./Overview";
 import ProfilePanel from "./ProfilePanel";
 import StudentsPanel from "./StudentsPanel";
+import WritingForStudents from "./WritingForStudents";
 
 type Tab = "exercises" | "lessons" | "profile";
 const TABS: { tab: Tab; label: string }[] = [
@@ -23,6 +24,10 @@ export default function TeacherApp() {
   const [openExercise, setOpenExercise] = useState<string | null>(null);
   const [openLesson, setOpenLesson] = useState<string | null>(null);
   const [showStudents, setShowStudents] = useState(false);
+  const [showWriting, setShowWriting] = useState(false);
+  const [message, setMessage] = useState("");
+  // Bumped after assigning to several students, so the overview reloads.
+  const [overviewKey, setOverviewKey] = useState(0);
 
   const loadStudents = () => api<Student[]>("/students").then(setStudents);
   useEffect(() => {
@@ -38,9 +43,25 @@ export default function TeacherApp() {
     <main className="page wide">
       <div className="row spread">
         <h1>{student ? student.username : "Class overview"}</h1>
-        <button onClick={() => setShowStudents(!showStudents)}>{showStudents ? "Hide students" : "Manage students"}</button>
+        <div className="row">
+          <button onClick={() => { setShowWriting(!showWriting); setMessage(""); }}>
+            {showWriting ? "Close writing form" : "Writing for several students"}
+          </button>
+          <button onClick={() => setShowStudents(!showStudents)}>{showStudents ? "Hide students" : "Manage students"}</button>
+        </div>
       </div>
       {showStudents && <StudentsPanel students={students} onChange={loadStudents} />}
+      {showWriting && (
+        <WritingForStudents
+          students={active}
+          onDone={(done) => {
+            setShowWriting(false);
+            setMessage(done);
+            setOverviewKey((k) => k + 1);
+          }}
+        />
+      )}
+      {message && <p className="notice">{message}</p>}
       <label>
         Show{" "}
         <select value={studentId} onChange={(e) => setStudentId(e.target.value)}>
@@ -52,7 +73,7 @@ export default function TeacherApp() {
       </label>
 
       {!student ? (
-        <Overview onOpenExercise={setOpenExercise} onOpenStudent={setStudentId} />
+        <Overview key={overviewKey} onOpenExercise={setOpenExercise} onOpenStudent={setStudentId} />
       ) : (
         <>
           <div className="tabs" role="tablist">

@@ -377,3 +377,44 @@ def test_photos_need_a_writing_exercise_before_evaluation(monkeypatch, fake_db, 
     client.post(f"/exercises/{fresh}/photos", content=PHOTO, headers=jpeg)
     assert client.delete(f"/exercises/{fresh}/photos", headers=AUTH).json()["photo_count"] == 0
     assert bucket == {}
+
+
+# ---- one writing exercise for several students ----
+
+
+def test_writing_for_several_students(monkeypatch, fake_db, as_teacher, harness, student):  # noqa: F811
+    fake_db.collection("students").document("s3").set({"username": "Kim", "auth_uid": "u3", "active": False})
+    draft = {"kind": "writing", "title": "My town", "prompt": "Describe your town.", "min_words": 40, "max_words": None}
+    url = "/exercises/writing-for-students"
+
+    # Nothing is created if any chosen student is missing or inactive.
+    for bad in ("s3", "nobody"):
+        assert client.post(url, json={"draft": draft, "student_ids": ["s1", bad]}, headers=AUTH).status_code == 404
+    assert fake_db.collection("exercises").stream() == []
+    assert client.post(url, json={"draft": draft, "student_ids": []}, headers=AUTH).status_code == 422
+    assert client.post(url, json={"draft": {**draft, "prompt": " "}, "student_ids": ["s1"]}, headers=AUTH).status_code == 422
+    assert client.post(url, json={"draft": {**draft, "min_words": 90, "max_words": 50}, "student_ids": ["s1"]}, headers=AUTH).status_code == 422
+
+    response = client.post(url, json={"draft": draft, "student_ids": ["s1", "s2", "s1"]}, headers=AUTH)
+    assert response.status_code == 200, response.text
+    first, second = response.json()["exercise_ids"]  # s1 picked twice, but gets one copy
+    assert harness.calls == []  # no AI involved
+
+    # Each student has their own assigned copy, and only sees their own.
+    as_student(monkeypatch, student_id="s2", uid="u2")
+    assert [e["exercise_id"] for e in client.get("/me/exercises", headers=AUTH).json()] == [second]
+    assert client.get(f"/exercises/{first}", headers=AUTH).status_code == 404
+    as_student(monkeypatch, student_id="s1")
+    view = client.get(f"/exercises/{first}", headers=AUTH).json()
+    assert view["prompt"] == "Describe your town." and view["state"] == "assigned"
+
+    # From here it's an ordinary writing exercise: submit, then scrub review.
+    assert client.post(f"/exercises/{first}/submit", json={"answers": {"text": TYPED}}, headers=AUTH).status_code == 200
+    become_teacher(monkeypatch)
+    view = client.get(f"/exercises/{first}", headers=AUTH).json()
+    assert view["state"] == "scrub_review" and view["status"] == "assigned"
+    assert client.put(f"/exercises/{first}", json=draft, headers=AUTH).status_code == 409  # frozen once assigned
+
+    # Teacher only.
+    as_student(monkeypatch, student_id="s1")
+    assert client.post(url, json={"draft": draft, "student_ids": ["s1"]}, headers=AUTH).status_code == 403

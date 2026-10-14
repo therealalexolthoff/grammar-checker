@@ -5,7 +5,7 @@ scripts/dev_firestore_emulator.sh), which needs a Java 21+ JRE - not
 available in every dev environment. This fake lets the auth/ownership
 logic be tested everywhere without that. Swap to emulator-backed tests if
 the code ever needs a Firestore query feature this fake doesn't implement
-(it supports get/set/update/delete/stream/add, where() with "==" filters
+(it supports get/set/update/delete/stream/add, batch set, where() with "==" filters
 only, and update() with a last_update_time precondition). Like real
 Firestore, it refuses a list directly inside a list.
 """
@@ -141,3 +141,20 @@ class FakeFirestore:
 
     def write_option(self, last_update_time):
         return FakeWriteOption(last_update_time)
+
+    def batch(self):
+        return FakeBatch()
+
+
+class FakeBatch:
+    """Collects writes and makes them all at once on commit()."""
+
+    def __init__(self):
+        self._writes = []
+
+    def set(self, ref, data):
+        self._writes.append((ref, data))
+
+    def commit(self):
+        for ref, data in self._writes:
+            ref.set(data)

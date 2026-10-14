@@ -84,6 +84,7 @@ button.link { border: none; background: none; color: var(--accent); padding: 0.2
 .blank { display: inline-block; width: 8rem; margin: 0 0.25rem; vertical-align: baseline; }
 .save-status { font-size: 0.9rem; color: var(--muted); }
 .save-status.offline, .save-status.failed { color: var(--wrong); font-weight: 600; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 1rem 1rem; margin: 0; }
 .check { font-weight: normal; display: flex; gap: 0.5rem; align-items: center; margin-top: 0.75rem; }
 .check input { width: 1.4rem; min-height: 1.4rem; margin: 0; }
 

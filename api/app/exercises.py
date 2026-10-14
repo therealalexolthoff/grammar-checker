@@ -68,6 +68,7 @@ from .models import (
     StudentItemView,
     SpanView,
     WRITING_KEY,
+    WritingForStudentsBody,
 )
 
 router = APIRouter(tags=["exercises"])
@@ -388,6 +389,43 @@ def generate_exercise(body: GenerateExerciseBody, user: CurrentUser = Depends(re
     return _teacher_view(doc_ref.id, exercise)
 
 
+@router.post("/exercises/writing-for-students")
+def assign_writing_to_students(body: WritingForStudentsBody, user: CurrentUser = Depends(require_teacher)) -> dict:
+    """A writing exercise the teacher wrote, assigned straight away to each
+    chosen student (teacher decision 2026-10-14). There's no AI draft, so
+    nothing to check before assigning. Each student gets their own copy,
+    which then works like any other writing exercise (FR-10). Either every
+    copy is created or none is."""
+    draft = body.draft
+    if not draft.title.strip() or not draft.prompt.strip():
+        raise HTTPException(status_code=422, detail="Give the exercise a title and a prompt.")
+    student_ids = list(dict.fromkeys(body.student_ids))  # each student once, in the order picked
+    for student_id in student_ids:
+        student = get_db().collection("students").document(student_id).get()
+        if not student.exists or not student.get("active"):
+            raise HTTPException(status_code=404, detail="A chosen student was not found or is inactive.")
+
+    count = len(student_ids)
+    batch = get_db().batch()
+    exercise_ids = []
+    for student_id in student_ids:
+        ref = get_db().collection("exercises").document()
+        exercise = {
+            "student_id": student_id,
+            "status": "assigned",
+            **draft.model_dump(mode="json"),  # kind, title, prompt, word limits
+            "teacher_request": f"Written by you, for {count} student{'s' if count > 1 else ''}.",
+            "generation_history": [],
+            "created_at": _now(),
+            "assigned_at": _now(),
+        }
+        batch.set(ref, exercise)
+        batch.set(_submission_ref(ref.id), _new_submission(ref.id, student_id))
+        exercise_ids.append(ref.id)
+    batch.commit()
+    return {"exercise_ids": exercise_ids}
+
+
 @router.get("/exercises")
 def list_exercises(student_id: str, user: CurrentUser = Depends(require_teacher)) -> list[dict]:
     docs = get_db().collection("exercises").where(filter=FieldFilter("student_id", "==", student_id)).stream()
@@ -450,17 +488,20 @@ def assign_exercise(exercise_id: str, body: AssignBody, user: CurrentUser = Depe
 
     exercise["status"] = "assigned"
     _exercise_ref(exercise_id).update({"status": "assigned", "assigned_at": _now()})
-    _submission_ref(exercise_id).set(
-        {
-            "exercise_id": exercise_id,
-            "student_id": exercise["student_id"],
-            "state": "assigned",
-            "answers": {},
-            "grades": {},
-            "updated_at": _now(),
-        }
-    )
+    _submission_ref(exercise_id).set(_new_submission(exercise_id, exercise["student_id"]))
     return _teacher_view(exercise_id, exercise)
+
+
+def _new_submission(exercise_id: str, student_id: str) -> dict:
+    """The student's empty submission, created when an exercise is assigned."""
+    return {
+        "exercise_id": exercise_id,
+        "student_id": student_id,
+        "state": "assigned",
+        "answers": {},
+        "grades": {},
+        "updated_at": _now(),
+    }
 
 
 @router.post("/exercises/{exercise_id}/release")

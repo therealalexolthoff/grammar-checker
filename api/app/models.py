@@ -58,6 +58,14 @@ class RegenerateBody(BaseModel):
     note: str = Field(default="", max_length=_MAX_DESCRIPTION)
 
 
+class WritingForStudentsBody(BaseModel):
+    """A writing exercise the teacher wrote, to assign to several students
+    at once (teacher decision 2026-10-14)."""
+
+    draft: WritingExerciseDraft
+    student_ids: list[str] = Field(min_length=1, max_length=100)
+
+
 class AssignBody(BaseModel):
     # The approval checklist (docs/REQUIREMENTS.md FR-11): the teacher must
     # confirm they checked every answer key and concept code. The screen
