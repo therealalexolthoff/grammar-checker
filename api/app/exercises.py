@@ -31,6 +31,7 @@ the same way, as the single answer WRITING_KEY.
 """
 
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -72,7 +73,7 @@ from .models import (
 router = APIRouter(tags=["exercises"])
 
 # States in which the student may still change answers.
-_OPEN_STATES = ("assigned", "in_progress")
+OPEN_STATES = ("assigned", "in_progress")
 # States the teacher may reopen from. Not "released": once the student has
 # seen results, reopening would let them re-answer with the key in view.
 # Not "evaluating" or "transcribing": an AI call is in progress.
@@ -142,7 +143,7 @@ def _load_submission(exercise_id: str) -> dict | None:
     return doc.to_dict() if doc.exists else None
 
 
-def update_open_submission(exercise_id: str, check, changes: dict, open_states=_OPEN_STATES) -> None:
+def update_open_submission(exercise_id: str, check, changes: dict | Callable[[dict], dict], open_states=OPEN_STATES) -> None:
     """Applies `changes` to a submission the student can still edit (one
     of `open_states`).
 
@@ -152,7 +153,9 @@ def update_open_submission(exercise_id: str, check, changes: dict, open_states=_
     work that must stay locked (FR-15). So the write only goes through if
     the document is unchanged since it was read; if something else wrote
     in between, read again and re-check. `check` runs between the read
-    and the write (answer-shape validation).
+    and the write (answer-shape validation). `changes` may also be a
+    function of the submission just read, for changes that build on it
+    (e.g. adding a photo page to the list).
     """
     ref = _submission_ref(exercise_id)
     for _ in range(3):
@@ -160,8 +163,9 @@ def update_open_submission(exercise_id: str, check, changes: dict, open_states=_
         if not snapshot.exists or snapshot.get("state") not in open_states:
             raise HTTPException(status_code=409, detail="This exercise has already been submitted.")
         check()
+        new = changes(snapshot.to_dict()) if callable(changes) else changes
         try:
-            ref.update(changes, option=get_db().write_option(last_update_time=snapshot.update_time))
+            ref.update(new, option=get_db().write_option(last_update_time=snapshot.update_time))
             return
         except FailedPrecondition:
             continue  # someone else wrote first; look again

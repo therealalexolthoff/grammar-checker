@@ -5,6 +5,7 @@
 // collects input.
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { inPageOrder, toCleanJpeg, type PageLink } from "../photos";
 import SpannedText from "../SpannedText";
 import type { Annotation, Code, Outcome, TeacherExercise, WritingEvaluation } from "../types";
 import { wordCount } from "../words";
@@ -14,10 +15,6 @@ import { AnnotationsEditor, withoutOffsets } from "./ShortAnswerReview";
 const PHOTO_STATES = ["assigned", "in_progress", "transcript_review", "scrub_review"];
 const REVIEW_STATES = ["scrub_review", "draft_ready", "ready_to_release"];
 const AFTER_SCRUB = [...REVIEW_STATES, "evaluating", "released", "revision_open", "revision_submitted"];
-
-// Photos are shrunk to at most this many pixels on the long side before
-// upload: plenty to read handwriting, and far less to send to the AI.
-const MAX_PHOTO_SIDE = 2000;
 
 type Run = (label: string, call: () => Promise<TeacherExercise>) => Promise<boolean>;
 
@@ -86,22 +83,6 @@ export default function WritingReview({
 
 // ---- handwriting: upload, view, transcribe ----
 
-// Re-draws a photo on a canvas and saves it as a JPEG. The new file has
-// none of the original's metadata (location, camera, time), is the right
-// way up, and is no larger than MAX_PHOTO_SIDE. The API strips metadata
-// again anyway (api/app/photos.py).
-async function toCleanJpeg(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const scale = Math.min(1, MAX_PHOTO_SIDE / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve, reject) =>
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Could not read that photo."))), "image/jpeg", 0.85),
-  );
-}
-
 function Handwriting({ exercise, run, busy }: { exercise: TeacherExercise; run: Run; busy: string }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const id = exercise.exercise_id;
@@ -111,8 +92,7 @@ function Handwriting({ exercise, run, busy }: { exercise: TeacherExercise; run: 
 
   async function upload(files: FileList | null) {
     if (!files?.length) return;
-    // Pages go up in file-name order: phone photos are numbered as taken.
-    const pages = [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const pages = inPageOrder(files);
     for (const [i, file] of pages.entries()) {
       const ok = await run(`Uploading page ${count + i + 1}…`, async () => {
         let photo: Blob;
@@ -134,7 +114,7 @@ function Handwriting({ exercise, run, busy }: { exercise: TeacherExercise; run: 
         <>
           <p className="muted">
             Add photos of the pages. If you choose several at once they're added in file-name order, after any pages
-            already here. Photos are never shown to the student.
+            already here, including any the student added. Pages you add are never shown to the student.
           </p>
           <label>
             Add pages
@@ -183,9 +163,9 @@ function Handwriting({ exercise, run, busy }: { exercise: TeacherExercise; run: 
 // The pages, through short-lived links from the API (they stop working
 // after 15 minutes; reopen the exercise to get fresh ones).
 function PhotoPages({ exercise }: { exercise: TeacherExercise }) {
-  const [pages, setPages] = useState<{ page: number; url: string }[]>([]);
+  const [pages, setPages] = useState<PageLink[]>([]);
   useEffect(() => {
-    api<{ page: number; url: string }[]>(`/exercises/${exercise.exercise_id}/photos`).then(setPages, () => setPages([]));
+    api<PageLink[]>(`/exercises/${exercise.exercise_id}/photos`).then(setPages, () => setPages([]));
   }, [exercise.exercise_id, exercise.photo_count]);
 
   return (

@@ -41,11 +41,12 @@ input, textarea, select {
 select { width: auto; display: inline-block; }
 textarea { resize: vertical; }
 
-button {
+button, label.button {
   font: inherit; min-height: 2.75rem; padding: 0.5rem 1rem;
   border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink);
   cursor: pointer;
 }
+label.button { display: inline-flex; align-items: center; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 button.big { width: 100%; min-height: 3.25rem; margin-top: 0.5rem; }

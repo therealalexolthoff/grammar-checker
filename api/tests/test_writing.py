@@ -278,9 +278,11 @@ def test_handwritten_path(monkeypatch, fake_db, as_teacher, harness, student, bu
     # Transcribing locked the student's typed answer.
     as_student(monkeypatch, student_id="s1")
     assert client.put(f"/exercises/{exercise_id}/answers", json={"answers": {"text": "x"}}, headers=AUTH).status_code == 409
-    # Students never get photos or the transcription.
-    assert client.get(url, headers=AUTH).status_code == 403
-    assert client.post(url, content=PHOTO, headers=jpeg).status_code == 403
+    # Students never get the teacher's photos or the transcription, and
+    # can't add photos once it's locked.
+    assert client.get(url, headers=AUTH).json() == []
+    assert client.post(url, content=PHOTO, headers=jpeg).status_code == 409
+    assert len(bucket) == 2
     assert TRANSCRIBED not in str(client.get(f"/exercises/{exercise_id}", headers=AUTH).json())
 
     become_teacher(monkeypatch)
@@ -301,6 +303,59 @@ def test_handwritten_path(monkeypatch, fake_db, as_teacher, harness, student, bu
     view = client.post(f"/exercises/{exercise_id}/final-source", json={"source": "typed"}, headers=AUTH).json()
     assert view["state"] == "scrub_review" and view["evaluation"] is None
     assert view["scrubbed_answers"] == {"text": "On sat"}
+
+
+def test_student_photos(monkeypatch, fake_db, as_teacher, harness, student, bucket):  # noqa: F811
+    exercise_id = _assigned(harness)
+    url = f"/exercises/{exercise_id}/photos"
+    jpeg = {"Content-Type": "image/jpeg", **AUTH}
+    client.post(url, content=PHOTO, headers=jpeg)  # the teacher adds a page first
+
+    as_student(monkeypatch, student_id="s1")
+    assert client.post(url, content=b"not a photo", headers=jpeg).status_code == 422
+    links = client.post(url, content=PHOTO, headers=jpeg).json()
+    links = client.post(url, content=PHOTO, headers=jpeg).json()
+    # Only their own two pages, numbered from 1 - never the teacher's.
+    assert [link["page"] for link in links] == [1, 2]
+    teachers_path = _submission(fake_db, exercise_id)["photos"][0]["path"]
+    assert teachers_path not in str(links)
+    assert len(bucket) == 3 and all(b"GPS" not in data for data in bucket.values())
+    assert _submission(fake_db, exercise_id)["state"] == "in_progress"
+
+    # Starting again removes only the student's pages.
+    assert client.delete(url, headers=AUTH).json() == []
+    assert list(bucket) == [teachers_path]
+    client.post(url, content=PHOTO, headers=jpeg)
+
+    # Another student can't see or touch them.
+    as_student(monkeypatch, student_id="s2", uid="student-uid-2")
+    assert client.get(url, headers=AUTH).status_code == 404
+    assert client.post(url, content=PHOTO, headers=jpeg).status_code == 404
+    assert client.delete(url, headers=AUTH).status_code == 404
+
+    # Submitting locks the photos: hidden from the student, no changes.
+    as_student(monkeypatch, student_id="s1")
+    assert client.post(f"/exercises/{exercise_id}/submit", json={"answers": {"text": ""}}, headers=AUTH).status_code == 200
+    assert client.get(url, headers=AUTH).json() == []
+    assert client.post(url, content=PHOTO, headers=jpeg).status_code == 409
+    assert client.delete(url, headers=AUTH).status_code == 409
+    assert len(bucket) == 2  # the refused upload wasn't kept
+
+    # The teacher sees both pages and transcribes as usual.
+    become_teacher(monkeypatch)
+    assert len(client.get(url, headers=AUTH).json()) == 2
+    harness.result = {"pages": [{"page": 1, "text": "a"}, {"page": 2, "text": TRANSCRIBED}]}
+    assert client.post(f"/exercises/{exercise_id}/transcribe", headers=AUTH).json()["state"] == "transcript_review"
+
+
+def test_student_photos_only_on_writing(monkeypatch, fake_db, as_teacher, harness, student, bucket):  # noqa: F811
+    harness.result = {"kind": "grammar", "title": "x", "items": [{"id": "i1", "type": "short_answer", "prompt": "Why?"}]}
+    exercise_id = client.post("/exercises/generate", json={"student_id": "s1", "description": "x"}, headers=AUTH).json()["exercise_id"]
+    client.post(f"/exercises/{exercise_id}/assign", json={"answers_and_concepts_checked": True}, headers=AUTH)
+    as_student(monkeypatch, student_id="s1")
+    jpeg = {"Content-Type": "image/jpeg", **AUTH}
+    assert client.post(f"/exercises/{exercise_id}/photos", content=PHOTO, headers=jpeg).status_code == 409
+    assert bucket == {}
 
 
 def test_failed_transcription_loses_nothing(monkeypatch, fake_db, as_teacher, harness, student, bucket):  # noqa: F811

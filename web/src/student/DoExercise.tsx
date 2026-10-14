@@ -1,9 +1,11 @@
 // One exercise for the student: answer, autosave, submit; or, once
 // released, the results (correct/incorrect, right answer, explanation).
-// Writing: a response with a word count, then the coded results and the
-// one revision round (tap a flagged span, retype just those words).
+// Writing: a response with a word count and, optionally, photos of
+// handwritten pages; then the coded results and the one revision round
+// (tap a flagged span, retype just those words).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api";
+import { inPageOrder, toCleanJpeg, type PageLink } from "../photos";
 import SpannedText from "../SpannedText";
 import type { Answer, Answers, StudentExercise, StudentItem, StudentSpan } from "../types";
 import { wordCount } from "../words";
@@ -178,7 +180,10 @@ function AnswerForm({ exercise, onSubmitted }: { exercise: StudentExercise; onSu
     <>
       <SaveStatusLine status={answers.status} saveError={answers.saveError} />
       {exercise.kind === "writing" ? (
-        <WritingInput exercise={exercise} text={(answers.value.text as string) ?? ""} onChange={(t) => update("text", t)} />
+        <>
+          <WritingInput exercise={exercise} text={(answers.value.text as string) ?? ""} onChange={(t) => update("text", t)} />
+          <HandwrittenPages exerciseId={exercise.exercise_id} />
+        </>
       ) : (
         <ol className="items">
           {exercise.items.map((item) => (
@@ -219,6 +224,101 @@ function WritingInput({
         {count} {count === 1 ? "word" : "words"}
         {hint && ` – ${hint}`}
       </p>
+    </div>
+  );
+}
+
+// Photos of handwritten pages, taken by the student (FR-23). They see
+// their own pages until they submit; after that only the teacher does.
+function HandwrittenPages({ exerciseId }: { exerciseId: string }) {
+  const url = `/exercises/${exerciseId}/photos`;
+  const [pages, setPages] = useState<PageLink[]>([]);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  useEffect(() => {
+    api<PageLink[]>(url).then(setPages, () => setPages([]));
+  }, [url]);
+
+  async function upload(files: FileList | null) {
+    if (!files?.length) return;
+    setError("");
+    let count = pages.length;
+    for (const file of inPageOrder(files)) {
+      setBusy(`Sending page ${count + 1}…`);
+      try {
+        let photo: Blob;
+        try {
+          photo = await toCleanJpeg(file);
+        } catch {
+          throw new Error("That photo couldn't be opened. Please try taking it again.");
+        }
+        const next = await api<PageLink[]>(url, "POST", photo);
+        setPages(next);
+        count = next.length;
+      } catch (err) {
+        setError(`Page not added. ${(err as Error).message}`);
+        break;
+      }
+    }
+    setBusy("");
+  }
+
+  async function removeAll() {
+    setBusy("Removing…");
+    setError("");
+    try {
+      setPages(await api<PageLink[]>(url, "DELETE"));
+      setConfirmRemove(false);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setBusy("");
+  }
+
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    upload(e.target.files);
+    e.target.value = "";
+  };
+
+  return (
+    <div className="item stack">
+      <p className="instruction">Wrote it on paper? Add a photo of each page, in order.</p>
+      <p className="muted">Write only your first name on the paper. Make sure the whole page is in the photo and easy to read.</p>
+      <div className="row">
+        <label className="button">
+          📷 Take a photo
+          <input type="file" accept="image/*" capture="environment" hidden disabled={!!busy} onChange={pick} />
+        </label>
+        <label className="button">
+          Choose photos
+          <input type="file" accept="image/*" multiple hidden disabled={!!busy} onChange={pick} />
+        </label>
+      </div>
+      {pages.length > 0 && (
+        <>
+          <div className="photos">
+            {pages.map((p) => (
+              <figure key={p.page}>
+                <img src={p.url} alt={`Your page ${p.page}`} />
+                <figcaption>Page {p.page}</figcaption>
+              </figure>
+            ))}
+          </div>
+          {confirmRemove ? (
+            <div className="row">
+              <span>Remove all your pages and start again?</span>
+              <button onClick={removeAll} disabled={!!busy}>Yes, remove</button>
+              <button onClick={() => setConfirmRemove(false)} disabled={!!busy}>Cancel</button>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmRemove(true)} disabled={!!busy}>Start the pages again…</button>
+          )}
+        </>
+      )}
+      {busy && <p className="notice">{busy}</p>}
+      {error && <p className="error">{error}</p>}
     </div>
   );
 }

@@ -3,10 +3,14 @@ Phase 6). Generating, assigning, typing, submitting, scrubbing and
 evaluating a writing exercise use the same endpoints as grammar
 (exercises.py, review.py); this module has what only writing needs.
 
-Handwriting (FR-23 to FR-25), teacher only:
-1. Upload photos of the pages, in page order, any time before evaluation
-   - whether or not the student typed anything. Metadata is stripped and
-   the photos are kept in the private bucket (photos.py).
+Handwriting (FR-23 to FR-25):
+1. Upload photos of the pages, in page order. The teacher can do this any
+   time before evaluation - whether or not the student typed anything.
+   The student can add photos of their own pages while the exercise is
+   still open, see only those pages, and start them again; submitting
+   locks them like the typed answer. Metadata is stripped and the photos
+   are kept in the private bucket (photos.py).
+   Steps 2-4 are teacher only.
 2. Transcribe: the harness copies the pages verbatim. This locks the
    student's typed answer, as if they had submitted.
        ... -> transcribing -> transcript_review
@@ -36,6 +40,7 @@ from shared.schemas import PROMPT_VERSION, TranscribeRequest
 from . import jobs, photos
 from .auth import CurrentUser, get_current_user, require_teacher
 from .exercises import (
+    OPEN_STATES,
     _load_exercise,
     _load_submission,
     _submission_ref,
@@ -79,38 +84,101 @@ def _load_writing(exercise_id: str, allowed_states: tuple[str, ...]) -> tuple[di
     return exercise, submission
 
 
-# ---- handwriting (teacher) ----
+# ---- handwriting: photos (teacher, and the student while open) ----
 
 
-@router.post("/exercises/{exercise_id}/photos")
-def upload_photo(
-    exercise_id: str,
-    data: bytes = Body(media_type="image/jpeg"),
-    user: CurrentUser = Depends(require_teacher),
-) -> dict:
-    """Adds one page (a JPEG, as the request body) after the pages already
-    uploaded. The screen uploads pages one at a time, in order."""
-    exercise, submission = _load_writing(exercise_id, _PHOTO_STATES)
-    pages = submission.get("photos", [])
-    if len(pages) >= MAX_PAGES:
-        raise HTTPException(status_code=409, detail=f"At most {MAX_PAGES} pages per exercise.")
+def _store_page(exercise_id: str, student_id: str, data: bytes, uploaded_by: str) -> dict:
+    """Strips the photo's metadata, saves it to the bucket, and returns its
+    entry for the submission's "photos" list."""
     if len(data) > MAX_PHOTO_BYTES:
         raise HTTPException(status_code=413, detail="That photo is too large.")
     try:
         clean = photos.strip_jpeg_metadata(data)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="That file isn't a JPEG photo.") from exc
-
-    path = photos.photo_path(exercise["student_id"], exercise_id, str(uuid.uuid4()))
+    path = photos.photo_path(student_id, exercise_id, str(uuid.uuid4()))
     photos.upload(path, clean)
-    _submission_ref(exercise_id).update({"photos": pages + [{"path": path, "uploaded_at": _now()}]})
+    return {"path": path, "uploaded_at": _now(), "uploaded_by": uploaded_by}
+
+
+def _is_students(page: dict) -> bool:
+    # Pages from before students could upload have no "uploaded_by": they
+    # are the teacher's.
+    return page.get("uploaded_by") == "student"
+
+
+def _links(pages: list[dict]) -> list[dict]:
+    return [{"page": number, "url": photos.signed_url(page["path"])} for number, page in enumerate(pages, start=1)]
+
+
+def _load_student_writing(exercise_id: str, user: CurrentUser) -> dict:
+    exercise = load_for_student(exercise_id, user)
+    if exercise["kind"] != "writing":
+        raise HTTPException(status_code=409, detail="Photos are only for writing exercises.")
+    return exercise
+
+
+def _student_pages(exercise_id: str) -> list[dict]:
+    """The student's own pages, as short-lived links - only while the
+    exercise is open. After submitting they see no photos (FR-25), and
+    never pages the teacher uploaded."""
+    submission = _load_submission(exercise_id) or {}
+    if submission.get("state") not in OPEN_STATES:
+        return []
+    return _links([page for page in submission.get("photos", []) if _is_students(page)])
+
+
+@router.post("/exercises/{exercise_id}/photos")
+def upload_photo(
+    exercise_id: str,
+    data: bytes = Body(media_type="image/jpeg"),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Adds one page (a JPEG, as the request body) after the pages already
+    uploaded. The screen uploads pages one at a time, in order."""
+    if user.role == "student":
+        return _student_upload(exercise_id, data, user)
+    exercise, submission = _load_writing(exercise_id, _PHOTO_STATES)
+    pages = submission.get("photos", [])
+    if len(pages) >= MAX_PAGES:
+        raise HTTPException(status_code=409, detail=f"At most {MAX_PAGES} pages per exercise.")
+    page = _store_page(exercise_id, exercise["student_id"], data, "teacher")
+    _submission_ref(exercise_id).update({"photos": pages + [page]})
     return _teacher_view(exercise_id, exercise)
 
 
+def _student_upload(exercise_id: str, data: bytes, user: CurrentUser) -> list[dict]:
+    exercise = _load_student_writing(exercise_id, user)
+    if len((_load_submission(exercise_id) or {}).get("photos", [])) >= MAX_PAGES:
+        raise HTTPException(status_code=409, detail=f"You can add at most {MAX_PAGES} pages.")
+    page = _store_page(exercise_id, exercise["student_id"], data, "student")
+    try:
+        # Only while the exercise is still open: a submit (or the teacher
+        # starting a transcription) at the same moment wins.
+        update_open_submission(
+            exercise_id,
+            check=lambda: None,
+            changes=lambda current: {
+                "photos": current.get("photos", []) + [page],
+                "state": "in_progress",
+                "updated_at": _now(),
+            },
+        )
+    except HTTPException:
+        photos.delete(page["path"])  # not attached to the submission: don't keep it
+        raise
+    return _student_pages(exercise_id)
+
+
 @router.delete("/exercises/{exercise_id}/photos")
-def remove_photos(exercise_id: str, user: CurrentUser = Depends(require_teacher)) -> dict:
+def remove_photos(exercise_id: str, user: CurrentUser = Depends(get_current_user)):
     """Removes every page, to start the upload again (e.g. pages in the
-    wrong order). Any transcription already made is kept."""
+    wrong order). Any transcription already made is kept. A student
+    removes only their own pages, and only while the exercise is open."""
+    if user.role == "student":
+        return _student_remove(exercise_id, user)
+    if user.role != "teacher":
+        raise HTTPException(status_code=403, detail="teacher only")
     exercise, submission = _load_writing(exercise_id, _PHOTO_STATES)
     for page in submission.get("photos", []):
         photos.delete(page["path"])
@@ -118,15 +186,32 @@ def remove_photos(exercise_id: str, user: CurrentUser = Depends(require_teacher)
     return _teacher_view(exercise_id, exercise)
 
 
+def _student_remove(exercise_id: str, user: CurrentUser) -> list[dict]:
+    _load_student_writing(exercise_id, user)
+    removed: list[str] = []
+
+    def keep_teachers_pages(current: dict) -> dict:
+        pages = current.get("photos", [])
+        removed[:] = [page["path"] for page in pages if _is_students(page)]
+        return {"photos": [page for page in pages if not _is_students(page)], "updated_at": _now()}
+
+    update_open_submission(exercise_id, check=lambda: None, changes=keep_teachers_pages)
+    for path in removed:
+        photos.delete(path)
+    return _student_pages(exercise_id)
+
+
 @router.get("/exercises/{exercise_id}/photos")
-def photo_links(exercise_id: str, user: CurrentUser = Depends(require_teacher)) -> list[dict]:
-    """Short-lived links to view each page, in order. Teacher only - never
-    shown to students (FR-25)."""
-    submission = _load_submission(exercise_id) or {}
-    return [
-        {"page": number, "url": photos.signed_url(page["path"])}
-        for number, page in enumerate(submission.get("photos", []), start=1)
-    ]
+def photo_links(exercise_id: str, user: CurrentUser = Depends(get_current_user)) -> list[dict]:
+    """Short-lived links to view each page, in order. The teacher sees
+    every page; a student sees only their own, and only until they submit
+    (FR-25)."""
+    if user.role == "student":
+        _load_student_writing(exercise_id, user)
+        return _student_pages(exercise_id)
+    if user.role != "teacher":
+        raise HTTPException(status_code=403, detail="teacher only")
+    return _links((_load_submission(exercise_id) or {}).get("photos", []))
 
 
 @router.post("/exercises/{exercise_id}/transcribe")
