@@ -136,6 +136,9 @@ class StudentExerciseView(BaseModel):
     comment: str | None = None
     revision_edits: dict[str, str] | None = None  # {span index: the student's new words}
     revised_text: str | None = None
+    # Writing, once the teacher sends back the checked revision:
+    outcomes: dict[str, str] | None = None  # {span index: outcome} for each span the student changed
+    corrections: dict[str, str] | None = None  # {span index: suggested correction}, only spans not fixed
 
 
 # ---- writing: handwriting and revision (Phase 6) ----

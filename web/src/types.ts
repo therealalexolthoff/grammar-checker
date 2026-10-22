@@ -103,6 +103,9 @@ export type StudentExercise = {
   comment?: string;
   revision_edits?: Record<string, string>;
   revised_text?: string;
+  // Writing, once the teacher sends back the checked revision:
+  outcomes?: Record<string, Outcome>; // only spans the student changed
+  corrections?: Record<string, string>; // only spans not fixed
 };
 
 // ---- Phase 7: profile, lessons, overview ----

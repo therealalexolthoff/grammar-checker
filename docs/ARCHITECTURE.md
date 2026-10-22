@@ -52,7 +52,7 @@ assigned -> in_progress -> submitted
   has photo as final source:      submitted -> transcribing -> transcript_review -> scrub_review
   otherwise:                      submitted -> scrub_review
 scrub_review -> evaluating -> draft_ready -> ready_to_release -> released
-writing only: released -> revision_open -> revision_submitted
+writing only: released -> revision_open -> revision_submitted -> revision_reviewed
 ```
 - Reopen (teacher only): back to `in_progress`, audit-logged.
 - Editing scrubbed text after `draft_ready` sets `evaluation_valid=false` and returns to `scrub_review`.

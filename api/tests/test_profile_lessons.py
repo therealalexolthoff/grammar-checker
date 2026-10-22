@@ -190,7 +190,7 @@ def test_overview_lists_unfinished_work_and_unread_lessons(monkeypatch, fake_db,
     assert rows["Alex"]["unread_lessons"] == [{"lesson_id": lesson_id, "title": LESSON["title"]}]
     assert rows["Sam"] == {"student_id": "s2", "username": "Sam", "work": [], "unread_lessons": []}
 
-    # A revision counts as finished once every changed span is marked.
+    # A revision counts as finished once the marks are sent to the student.
     as_student(monkeypatch, student_id="s1")
     client.post(f"/exercises/{released_writing}/revision/submit", json={"edits": {"0": "went"}}, headers=AUTH)
     client.post(f"/lessons/{lesson_id}/read", headers=AUTH)
@@ -198,6 +198,9 @@ def test_overview_lists_unfinished_work_and_unread_lessons(monkeypatch, fake_db,
     work = client.get("/overview", headers=AUTH).json()[0]["work"]
     assert [w["state"] for w in work] == ["assigned", "revision_submitted"]
     client.put(f"/exercises/{released_writing}/revision/outcomes", json={"outcomes": {"0": "fixed"}}, headers=AUTH)
+    work = client.get("/overview", headers=AUTH).json()[0]["work"]
+    assert [w["state"] for w in work] == ["assigned", "revision_submitted"]
+    client.post(f"/exercises/{released_writing}/revision/send", headers=AUTH)
     alex = client.get("/overview", headers=AUTH).json()[0]
     assert [w["state"] for w in alex["work"]] == ["assigned"] and alex["unread_lessons"] == []
 

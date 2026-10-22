@@ -212,8 +212,23 @@ def test_revision_round(monkeypatch, fake_db, as_teacher, harness, student):  # 
     assert revision["edits"] == {"0": "went"}
     assert revision["changed"] == [{"index": "0", "start": 14, "end": 18}]
     assert client.put(f"{url}/outcomes", json={"outcomes": {"1": "fixed"}}, headers=AUTH).status_code == 422
+    assert client.post(f"{url}/send", headers=AUTH).status_code == 409  # nothing marked yet
     response = client.put(f"{url}/outcomes", json={"outcomes": {"0": "fixed"}}, headers=AUTH)
     assert response.json()["revision"]["outcomes"] == {"0": "fixed"}
+    # Marks can be changed until they're sent; then they're locked.
+    client.put(f"{url}/outcomes", json={"outcomes": {"0": "changed_wrongly"}}, headers=AUTH)
+    assert client.post(f"{url}/send", headers=AUTH).json()["state"] == "revision_reviewed"
+    assert client.put(f"{url}/outcomes", json={"outcomes": {"0": "fixed"}}, headers=AUTH).status_code == 409
+
+    # The student now sees the outcome, and the correction for a span not fixed.
+    as_student(monkeypatch, student_id="s1")
+    assert client.post(f"{url}/send", headers=AUTH).status_code == 403
+    view = client.get(f"/exercises/{exercise_id}", headers=AUTH).json()
+    assert view["state"] == "revision_reviewed"
+    assert view["outcomes"] == {"0": "changed_wrongly"}
+    assert view["corrections"] == {"0": "went"}
+    assert "Past." not in str(view)  # still never the explanation
+    become_teacher(monkeypatch)
     # The original and the annotations are untouched.
     submission = _submission(fake_db, exercise_id)
     assert submission["answers"]["text"] == TYPED

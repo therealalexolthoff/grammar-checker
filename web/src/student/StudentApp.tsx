@@ -11,6 +11,7 @@ export function stateLabel(state: string): string {
   if (state === "released") return "Results ready";
   if (state === "revision_open") return "Results ready – you can make corrections";
   if (state === "revision_submitted") return "Corrections sent";
+  if (state === "revision_reviewed") return "Corrections checked – see how you did";
   return "Submitted – waiting for your teacher";
 }
 

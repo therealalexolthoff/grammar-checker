@@ -61,7 +61,7 @@ In scope: grammar and punctuation errors, including spelling and capitalization.
 
 ### 4.6 Revision (writing exercises only)
 - FR-26. After release, the student sees their text with coded spans and can tap a flagged span to edit only that span. One round; submit locks it. Grammar short answers are not revisable in v1.
-- FR-27. Originals, annotations, and revisions are stored separately. The teacher reads revisions side by side with changed spans highlighted and marks each attempted span `fixed`, `unfixed`, or `changed_wrongly`. **Teacher decision (2026-10-08):** only spans the student actually changed get an outcome; untouched spans get none. Like short answers, the student sees and revises the scrubbed (evaluated) text. Revisions are not sent to the harness in v1.
+- FR-27. Originals, annotations, and revisions are stored separately. The teacher reads revisions side by side with changed spans highlighted and marks each attempted span `fixed`, `unfixed`, or `changed_wrongly`. **Teacher decision (2026-10-08):** only spans the student actually changed get an outcome; untouched spans get none. Like short answers, the student sees and revises the scrubbed (evaluated) text. Revisions are not sent to the harness in v1. **Teacher decision (2026-10-22):** once every changed span is marked, the teacher sends the outcomes to the student (`revision_reviewed`, shown to the student as "Corrections checked"); the marks are locked after sending. The student sees each changed span's outcome and, for spans not fixed, the suggested correction (an exception to FR-21; explanations stay hidden).
 
 ### 4.7 Writing lessons
 - FR-28. Teacher triggers a lesson by describing it and pressing Generate. The harness drafts 200 to 400 words: explanation plus a few practice examples. Examples are read-only (not interactive), with answers shown.
@@ -72,7 +72,7 @@ In scope: grammar and punctuation errors, including spelling and capitalization.
 - FR-31. Teacher can view the profile and keep private free-text notes per student. Notes are sent to the harness under the opaque ID. The notes field shows a warning: "Sent to the AI provider. No surnames or personal details."
 
 ### 4.9 Class overview (teacher)
-- FR-32. One screen listing each student with pending work and pipeline stage (assigned, in progress, submitted, awaiting transcription review, awaiting scrub, evaluating, draft ready, ready to release, released, revision open, revision submitted) and unread lessons.
+- FR-32. One screen listing each student with pending work and pipeline stage (assigned, in progress, submitted, awaiting transcription review, awaiting scrub, evaluating, draft ready, ready to release, released, revision open, revision submitted, revision checked) and unread lessons.
 
 ### 4.10 Operations
 - FR-33. The app logs each harness call's tokens and cost, shows monthly spend, and enforces a hard monthly cap in the app (estimate before call, record after). At the cap, generation/evaluation pause with a clear message. Cap is a setting.

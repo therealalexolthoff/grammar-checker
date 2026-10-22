@@ -22,6 +22,7 @@ export function stateLabel(state: string): string {
     released: "Released",
     revision_open: "Released – revision open",
     revision_submitted: "Revision submitted",
+    revision_reviewed: "Revision checked – sent to student",
   };
   return labels[state] ?? state;
 }

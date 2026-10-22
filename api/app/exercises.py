@@ -21,7 +21,7 @@ Submission states (docs/ARCHITECTURE.md section 5):
 Writing exercises also have the handwriting and revision states - see
 writing.py:
     ... -> transcribing -> transcript_review -> scrub_review
-    ready_to_release -> revision_open -> revision_submitted
+    ready_to_release -> revision_open -> revision_submitted -> revision_reviewed
 
 A submission's "answers" are the student's original answers and are never
 changed after submit. Short answers also get a separate "scrubbed_answers"
@@ -79,8 +79,8 @@ OPEN_STATES = ("assigned", "in_progress")
 # seen results, reopening would let them re-answer with the key in view.
 # Not "evaluating" or "transcribing": an AI call is in progress.
 _REOPENABLE_STATES = ("transcript_review", "scrub_review", "draft_ready", "ready_to_release")
-# States in which the student sees results (the last two: writing only).
-RESULTS_STATES = ("released", "revision_open", "revision_submitted")
+# States in which the student sees results (the last three: writing only).
+RESULTS_STATES = ("released", "revision_open", "revision_submitted", "revision_reviewed")
 
 
 def _now() -> datetime:
@@ -277,7 +277,9 @@ def _student_writing_view(exercise_id: str, exercise: dict, submission: dict) ->
     """A writing exercise for its student: the prompt and word limits, and
     once released, their evaluated text with coded spans, the overall
     comment (FR-21), and their revision (FR-26). Never the photos, the
-    transcription, corrections or explanations (FR-25)."""
+    transcription, corrections or explanations (FR-25) - except that once
+    the teacher sends back the checked revision, each changed span's
+    outcome, and the correction for each one not fixed (FR-27)."""
     state = submission.get("state", "assigned")
     view = StudentExerciseView(
         exercise_id=exercise_id,
@@ -300,6 +302,13 @@ def _student_writing_view(exercise_id: str, exercise: dict, submission: dict) ->
         if revision is not None:
             view.revision_edits = revision["edits"]
             view.revised_text = revision["revised_text"]
+            if state == "revision_reviewed":
+                view.outcomes = revision["outcomes"]
+                view.corrections = {
+                    index: evaluation["annotations"][int(index)]["correction"]
+                    for index, outcome in revision["outcomes"].items()
+                    if outcome != "fixed"
+                }
     return view
 
 

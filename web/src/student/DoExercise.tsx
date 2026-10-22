@@ -7,13 +7,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api";
 import { inPageOrder, toCleanJpeg, type PageLink } from "../photos";
 import SpannedText from "../SpannedText";
-import type { Answer, Answers, StudentExercise, StudentItem, StudentSpan } from "../types";
+import type { Answer, Answers, Outcome, StudentExercise, StudentItem, StudentSpan } from "../types";
 import { wordCount } from "../words";
 import { stateLabel } from "./StudentApp";
 
 const AUTOSAVE_DELAY_MS = 1500;
 const RETRY_DELAY_MS = 5000;
-const RESULTS_STATES = ["released", "revision_open", "revision_submitted"];
+const RESULTS_STATES = ["released", "revision_open", "revision_submitted", "revision_reviewed"];
 
 type SaveStatus = "saved" | "saving" | "unsaved" | "offline" | "failed";
 
@@ -498,6 +498,47 @@ function WritingResults({ exercise, onRevised }: { exercise: StudentExercise; on
           <p className="spanned">{exercise.revised_text}</p>
         </div>
       )}
+      {exercise.state === "revision_reviewed" && <CheckedRevision exercise={exercise} />}
+    </>
+  );
+}
+
+const OUTCOME_TEXT: Record<Outcome, string> = {
+  fixed: "✓ Fixed",
+  unfixed: "✗ Not fixed yet",
+  changed_wrongly: "⚠ Changed, but not right",
+};
+const OUTCOME_CLASS: Record<Outcome, string> = { fixed: "right", unfixed: "wrong", changed_wrongly: "partial" };
+
+// How the revision went, once the teacher has checked it (FR-27): each
+// part the student changed, with the teacher's mark, and the suggested
+// correction for anything not fixed.
+function CheckedRevision({ exercise }: { exercise: StudentExercise }) {
+  const text = exercise.answer_text ?? "";
+  const spans = exercise.spans ?? [];
+  const outcomes = exercise.outcomes ?? {};
+  const changed = Object.keys(outcomes).sort((a, b) => spans[Number(a)].start - spans[Number(b)].start);
+  return (
+    <>
+      <div className="item">
+        <p className="verdict">Your revision</p>
+        <p className="spanned">{exercise.revised_text}</p>
+      </div>
+      {changed.length === 0 && <p className="muted">You didn't change anything in your revision.</p>}
+      {changed.map((index) => {
+        const span = spans[Number(index)];
+        const outcome = outcomes[index];
+        const correction = exercise.corrections?.[index];
+        return (
+          <div key={index} className={`item ${OUTCOME_CLASS[outcome]}`}>
+            <p className="verdict">{OUTCOME_TEXT[outcome]}</p>
+            <p>
+              {span.code} ({span.meaning}): “{text.slice(span.start, span.end)}” → “{exercise.revision_edits?.[index] || "(deleted)"}”
+            </p>
+            {correction !== undefined && <p className="right-answer">Suggested correction: {correction || "(delete these words)"}</p>}
+          </div>
+        );
+      })}
     </>
   );
 }

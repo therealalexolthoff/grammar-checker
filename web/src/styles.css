@@ -72,7 +72,7 @@ button.link { border: none; background: none; color: var(--accent); padding: 0.2
   padding: 1rem; background: var(--card); border-radius: 10px;
 }
 .badge { font-size: 0.85rem; color: var(--muted); }
-.badge.released, .badge.revision_open { color: var(--right); font-weight: 600; }
+.badge.released, .badge.revision_open, .badge.revision_reviewed { color: var(--right); font-weight: 600; }
 
 /* Exercise items */
 .items { padding-left: 1.5rem; }

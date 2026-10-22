@@ -3,8 +3,8 @@ each student with their unfinished work, the stage each piece is at, and
 lessons they haven't read yet. Teacher only.
 
 Work counts as finished once released with nothing left to do: released
-grammar or writing with no revision, or a submitted revision whose every
-changed span the teacher has marked. Drafts aren't listed - they haven't
+grammar or writing with no revision, or a checked revision sent back to
+the student. Drafts aren't listed - they haven't
 reached the student yet.
 """
 
@@ -28,17 +28,12 @@ PIPELINE = [
     "ready_to_release",
     "revision_open",
     "revision_submitted",
+    "revision_reviewed",
 ]
 
 
 def is_finished(submission: dict) -> bool:
-    state = submission.get("state")
-    if state == "released":
-        return True
-    if state == "revision_submitted":
-        revision = submission.get("revision") or {}
-        return set(revision.get("outcomes", {})) >= set(revision.get("edits", {}))
-    return False
+    return submission.get("state") in ("released", "revision_reviewed")
 
 
 @router.get("/overview")

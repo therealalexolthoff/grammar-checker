@@ -24,8 +24,10 @@ Handwriting (FR-23 to FR-25):
 Revision (FR-26, FR-27): releasing an evaluation with flagged spans opens
 the student's one revision round (exercises.py, release). The student
 retypes flagged spans (autosaved) and submits, which locks it; then the
-teacher marks each changed span fixed, unfixed, or changed_wrongly.
-       revision_open -> revision_submitted
+teacher marks each changed span fixed, unfixed, or changed_wrongly
+(saved as often as they like), and once every one is marked, sends the
+marks back to the student, which locks them.
+       revision_open -> revision_submitted -> revision_reviewed
 Revisions are never sent to the harness.
 """
 
@@ -371,4 +373,17 @@ def mark_outcomes(exercise_id: str, body: OutcomesBody, user: CurrentUser = Depe
     if unknown:
         raise HTTPException(status_code=422, detail=f"span {unknown[0]!r} wasn't changed by the student")
     _submission_ref(exercise_id).update({"revision": {**revision, "outcomes": body.outcomes}, "updated_at": _now()})
+    return _teacher_view(exercise_id, exercise)
+
+
+@router.post("/exercises/{exercise_id}/revision/send")
+def send_outcomes(exercise_id: str, user: CurrentUser = Depends(require_teacher)) -> dict:
+    """Shows the student how their revision went: each changed span's
+    outcome, and the correction for each one not fixed (FR-27). Only once
+    every changed span is marked; the marks can't be changed after."""
+    exercise, submission = _load_writing(exercise_id, ("revision_submitted",))
+    revision = submission["revision"]
+    if set(revision["edits"]) - set(revision.get("outcomes", {})):
+        raise HTTPException(status_code=409, detail="Mark every change before sending.")
+    _submission_ref(exercise_id).update({"state": "revision_reviewed", "updated_at": _now()})
     return _teacher_view(exercise_id, exercise)

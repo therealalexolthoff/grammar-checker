@@ -14,7 +14,7 @@ import { AnnotationsEditor, withoutOffsets } from "./ShortAnswerReview";
 // Mirrors the state lists in api/app/writing.py and review.py.
 const PHOTO_STATES = ["assigned", "in_progress", "transcript_review", "scrub_review"];
 const REVIEW_STATES = ["scrub_review", "draft_ready", "ready_to_release"];
-const AFTER_SCRUB = [...REVIEW_STATES, "evaluating", "released", "revision_open", "revision_submitted"];
+const AFTER_SCRUB = [...REVIEW_STATES, "evaluating", "released", "revision_open", "revision_submitted", "revision_reviewed"];
 
 type Run = (label: string, call: () => Promise<TeacherExercise>) => Promise<boolean>;
 
@@ -73,7 +73,9 @@ export default function WritingReview({
       {exercise.state === "revision_open" && (
         <p className="notice">Released. The student can now revise the flagged words; you'll mark their changes here.</p>
       )}
-      {exercise.state === "revision_submitted" && <RevisionReview exercise={exercise} run={run} busy={busy} />}
+      {["revision_submitted", "revision_reviewed"].includes(exercise.state) && (
+        <RevisionReview exercise={exercise} run={run} busy={busy} />
+      )}
 
       {error && <p className="error pre">{error}</p>}
       {busy && <p className="notice">{busy}</p>}
@@ -424,6 +426,8 @@ function RevisionReview({ exercise, run, busy }: { exercise: TeacherExercise; ru
 
   const codeOf = (index: string) => evaluation.annotations[Number(index)].code;
   const unmarked = revision.changed.filter((c) => !outcomes[c.index]).length;
+  // Once sent to the student, the marks are locked.
+  const sent = exercise.state === "revision_reviewed";
 
   return (
     <section className="panel stack">
@@ -458,7 +462,7 @@ function RevisionReview({ exercise, run, busy }: { exercise: TeacherExercise; ru
                     <td>
                       <select
                         value={outcomes[c.index] ?? ""}
-                        disabled={!!busy}
+                        disabled={sent || !!busy}
                         onChange={(e) => {
                           setOutcomes({ ...outcomes, [c.index]: e.target.value as Outcome });
                           setDirty(true);
@@ -473,17 +477,33 @@ function RevisionReview({ exercise, run, busy }: { exercise: TeacherExercise; ru
               })}
             </tbody>
           </table>
-          <div className="row">
-            <button
-              className="primary"
-              onClick={() => run("Saving…", () => api(`/exercises/${exercise.exercise_id}/revision/outcomes`, "PUT", { outcomes }))}
-              disabled={!dirty || !!busy}
-            >
-              Save outcomes
-            </button>
-            {unmarked > 0 && <span className="muted">{unmarked} change(s) not marked yet.</span>}
-          </div>
+          {!sent && (
+            <div className="row">
+              <button
+                onClick={() => run("Saving…", () => api(`/exercises/${exercise.exercise_id}/revision/outcomes`, "PUT", { outcomes }))}
+                disabled={!dirty || !!busy}
+              >
+                Save outcomes
+              </button>
+              {unmarked > 0 && <span className="muted">{unmarked} change(s) not marked yet.</span>}
+              {unmarked === 0 && dirty && <span className="muted">Save your marks before sending.</span>}
+            </div>
+          )}
         </>
+      )}
+      {sent ? (
+        <p className="notice">Sent. The student can see each outcome, and the suggested correction for anything not fixed.</p>
+      ) : (
+        <div className="row">
+          <button
+            className="primary"
+            onClick={() => run("Sending…", () => api(`/exercises/${exercise.exercise_id}/revision/send`, "POST"))}
+            disabled={unmarked > 0 || dirty || !!busy}
+          >
+            Send to student
+          </button>
+          <span className="muted">Shows the student how they did. Marks can't be changed after.</span>
+        </div>
       )}
     </section>
   );

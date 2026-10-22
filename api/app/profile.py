@@ -23,7 +23,7 @@ from .models import WRITING_KEY
 from .settings import get_settings
 
 # Submission states that come after the teacher's approval.
-APPROVED_STATES = ("ready_to_release", "released", "revision_open", "revision_submitted")
+APPROVED_STATES = ("ready_to_release", "released", "revision_open", "revision_submitted", "revision_reviewed")
 OUTCOMES = ("fixed", "unfixed", "changed_wrongly")
 
 
